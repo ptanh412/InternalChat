@@ -2,56 +2,52 @@ const Users = require('../models/Users');
 
 
 const authorizeAdmin = async (req, res, next) => {
-	try{
-		if (!req.user){
-			return res.status(401).json({
-				success: false,
-				message: 'Unauthorized'
-			});
-		}
+    try {
+        if (!req.user){
+            return res.status(401).json({
+                success: false,
+                message: 'Unauthorized'
+            });
+        }
 
-		const user = await Users.findById(req.user.id)
-		.populate({
-			path: 'role',
-			populate:{
-				path: 'permissions customPermissions',
-				model: 'Permissions'
-			}
-		});
+        const user = await Users.findById(req.user.id)
+        .populate({
+            path: 'role',
+            populate:{
+                path: 'permissions customPermissions',
+                model: 'Permissions'
+            }
+        });
 
-		if (!user){
-			return res.status(404).json({
-				success: false,
-				message: 'User not found'
-			})
-		};
+        if (!user){
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
 
-		if (user.role.name === 'admin'){
-			next();
-		}
+        // Simplify permission check
+        const isAdmin = user.role.name === 'admin';
+        const hasManageUsersPermission = 
+            (user.role.permissions?.manageUsers) || 
+            (user.role.customPermissions?.manageUsers);
 
-		let userPermissions = null;
+        if (isAdmin || hasManageUsersPermission) {
+            return next();
+        }
 
-		if (user.role.permissions && user.role.permissions.manageUsers === true){
-			userPermissions = user.role.permissions;
-		}else if (user.role.customPermissions && user.role.customPermissions.manageUsers === true){
-			userPermissions = user.role.customPermissions;
-		}
+        return res.status(403).json({
+            success: false,
+            message: 'Forbidden'
+        });
 
-		if (userPermissions && userPermissions.manageUsers === true){
-			next();
-		}
-		return res.status(403).json({
-			success: false,
-			message: 'Forbidden'
-		});
-	}catch{
-		console.error('Authorize admin error: ', error.message);
-		return res.status(500).json({
-			success: false,
-			message: error.message || 'Internal server error'
-		});
-	}
+    } catch (error) {
+        console.error('Authorize admin error: ', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
 }
 
 module.exports = authorizeAdmin;

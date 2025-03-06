@@ -9,6 +9,7 @@ const helpers = require('../helper/user');
 const Roles = require('../models/Roles.js');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -19,7 +20,7 @@ const createUser = async (userData) => {
 
 		if (!userData.employeeId) {
 			const counter = await Counters.findOneAndUpdate(
-				{ name: 'employeeId' },
+				{ name: '' },
 				{ $inc: { seq: 1 } },
 				{ new: true, upsert: true }
 			);
@@ -30,18 +31,26 @@ const createUser = async (userData) => {
 			if (employeeIdExists) throw new Error('Employee ID already exists');
 		}
 
-		if (userData.department && typeof userData.department === 'string') {
-			let department = await Department.findOne({
-				name: { $regex: new RegExp(userData.department, 'i') }
-			})
-
-			if (!department) {
-				department = new Department({
-					name: userData.department
-				});
-				await department.save();
+		if (userData.department) {
+			if (typeof userData.department === 'string' && !mongoose.Types.ObjectId.isValid(userData.department)) {
+				let department = await Department.findOne({
+					name: { $regex: new RegExp(userData.department, 'i') }
+				})
+		
+				if (!department) {
+					department = new Department({
+						name: userData.department,
+						description: `${userData.department} Department`
+					});
+					await department.save();
+				}
+				userData.department = department._id;
+			} else {
+				const department = await Department.findById(userData.department);
+				if (!department) {
+					throw new Error('Invalid department ID');
+				}
 			}
-			userData.department = department._id;
 		}
 
 		const positionToRoleMap = {
@@ -56,6 +65,7 @@ const createUser = async (userData) => {
 		}
 
 		const roleName = positionToRoleMap[userData.position] || 'user';
+		console.log(roleName);
 		const role = await Roles.findOne({ name: roleName });
 
 		if (!role) throw new Error('Role not found');
@@ -223,11 +233,17 @@ const login = async (userData) => {
 		.populate('department', 'name')
 		.populate({
 			path: 'role',
-			populate: {
-				path: 'permissions, customPermissions',
-				model: 'Permissions'
-			}
-		})
+			populate: [
+				{
+					path: 'permissions',
+					model: 'Permissions'
+				},
+				{
+					path: 'customPermissions',
+					model: 'Permissions'
+				}
+			]
+		});
 		if (!user) throw new Error('Invalid email or password');
 
 		const passwordMatch = await comparePassword(userData.password, user.password);

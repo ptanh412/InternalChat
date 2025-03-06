@@ -9,6 +9,7 @@ const authRoutes = require('./routes/authRoute');
 const permissionRoutes = require('./routes/permissionRoute');
 const roleRoutes = require('./routes/roleRoutes.js');
 const departmentRoutes = require('./routes/departmentRoute');
+const conversationRoutes = require('./routes/conversationRoute');
 const server = http.createServer(app);
 
 const io = setUpSocket(server);
@@ -22,6 +23,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/permission', permissionRoutes);
 app.use('/api/role', roleRoutes);
 app.use('/api/department', departmentRoutes);
+app.use('/api/conversation', conversationRoutes);
 
 
 const PORT = process.env.PORT;

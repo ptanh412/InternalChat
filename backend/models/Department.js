@@ -14,6 +14,10 @@ const departmentSchema = new mongoose.Schema({
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'User'
 	},
+	deputyHeader:{
+		type: mongoose.Schema.Types.ObjectId,
+		ref: 'User'
+	},
 	members: [{
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'User'
@@ -32,7 +36,8 @@ const departmentSchema = new mongoose.Schema({
 	}
 });
 
-departmentSchema.index({header: 1});
-departmentSchema.index({members: 1});
-
+departmentSchema.index({
+	header: 1,
+	members: 1
+});
 module.exports = mongoose.model('Department', departmentSchema);

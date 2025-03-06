@@ -12,7 +12,7 @@ const socketAuth = async (socket, next) => {
 
 		const decoded = verifyToken(token);
 
-		const user = await Users.findById(decoded.id);
+		const user = await Users.findById(decoded.userId).populate('role');
 
 		if (!user) {
 			throw new Error('Authentication failed');

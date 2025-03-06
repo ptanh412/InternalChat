@@ -24,9 +24,9 @@ router.post('/change-password', authentication, [
 	check('newPassword', 'New password is required').isLength({min: 6})
 ], authController.changePassword);
 
-router.put('/update-user', authentication, authController.updateUser);
+router.put('/update-user/:userId', authentication, authController.updateUser);
 
-router.delete('/delete-user', authentication, authController.deleteUser);
+// router.delete('/delete-user', authentication, authController.deleteUser);
 
 router.post('/reset-password', [
 	check('email', 'Email is required').isEmail()

@@ -3,13 +3,14 @@ const roleService = require('../services/roleService');
 
 const create = async (req, res) => {
 	try {
+
 		const errors = validationResult(req);
 		if (!errors.isEmpty()) {
 			return res.status(400).json({ errors: errors.array() });
 		}
 
-		const {name, permissions} = req.body;
-		const result = await roleService.createRole(name, permissions);
+		const {name, permissionData} = req.body;
+		const result = await roleService.createRole(name, permissionData);
 
 		return res.status(201).json({
 			success: true,
@@ -87,7 +88,8 @@ const getAll = async (req, res) =>{
 
 const getPermissionByScope = async (req, res) =>{
 	try{
-		const {roleId, scope} = req.params;
+		const {roleId} = req.params;
+		const {scope} = req.query;
 		if(!roleId || !scope) {
 			return res.status(400).json({
 				success: false,

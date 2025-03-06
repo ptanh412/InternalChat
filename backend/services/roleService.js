@@ -6,13 +6,14 @@ const Users = require('../models/Users');
 const createRole = async (name, permissionData) => {
 	try {
 		const existingRole = await Roles.findOne({
-			name: role
+			name
 		});
 		if (existingRole) throw new Error('Role already exists');
 
+		console.log('permissionData', permissionData);
+
 		const permissions = new Permissions({
 			name: `${name}_permissions`,
-			scope: permissionData.scope || 'system',
 			...permissionData
 		})
 
@@ -35,7 +36,9 @@ const createRole = async (name, permissionData) => {
 
 const updateRole = async (roleId, updateData) => {
 	try {
-		const role = await Roles.findById(roleId);
+		const role = await Roles.findById(roleId).exec();
+		console.log('roleId', roleId);
+		console.log('role', role);
 		if (!role) throw new Error('Role not found');
 
 		if (updateData.permissions) {

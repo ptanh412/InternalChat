@@ -11,11 +11,11 @@ const createRoleValidation = [
 	.isIn(['admin', 'user', 'department_head', 'deputy_head', 'project_leader', 'deputy_leader']).withMessage('Invalid role name'),
 ]
 
-router.get('/', authenticate,authorization, roleController.getRoles);
+router.get('/', authenticate,authorization, roleController.getAll);
 router.get('/:roleId', authenticate, authorization, roleController.getPermissionByScope);
 router.post('/', authenticate, authorization, createRoleValidation, roleController.create);
 router.put('/:roleId', authenticate, authorization, roleController.update);
-router.delete('/:roleId', authenticate, authorization, roleController.delete);
+// router.delete('/:roleId', authenticate, authorization, roleController.);
 
 
 module.exports = router;

@@ -12,31 +12,18 @@ const getPermissionsMatrix = async (req, res) =>{
 const updateRolePermissions = async (req, res) =>{
 	try {
 		const {roleId} = req.params;
-		const {permission, scope} = req.body;
+		const {permissionUpdates, scope} = req.body;
 
-		if (!roleId || !permission || !scope) {
+		if (!roleId || !permissionUpdates || !scope) {
 			throw new Error('Missing required fields');
 		}
 
 		const updatedPermissions = await permissionService.updateRolePermissions(
 			roleId,
-			permission,
-			scope,
-			req.user
+			permissionKey,
+			value
 		)
 		res.status(200).json(updatedPermissions);
-	}catch (error){
-		res.status(500).json({message: error.message});
-	}
-}
-
-const initializePermissions = async (req, res) =>{
-	try {
-		const result = await permissionService.initialPermissions();
-		res.status(200).json({
-			message: 'Permissions initialized successfully',
-			data: result
-		});
 	}catch (error){
 		res.status(500).json({message: error.message});
 	}
@@ -45,5 +32,4 @@ const initializePermissions = async (req, res) =>{
 module.exports = {
 	getPermissionsMatrix,
 	updateRolePermissions,
-	initializePermissions
 }

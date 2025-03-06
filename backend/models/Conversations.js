@@ -10,16 +10,6 @@ const conversationSchema = new mongoose.Schema({
 		required: true,
 		enum: ['private', 'group', 'department'],
 	},
-	participants: [{
-		type: mongoose.Schema.Types.ObjectId,
-		ref: 'User',
-		required: true
-	}],
-	participantUnreadcount: {
-		type: Map,
-		of: Number,
-		default: ()	=> new Map(),
-	},
 	name:{
 		type: String,
 		default: ''
@@ -49,18 +39,6 @@ const conversationSchema = new mongoose.Schema({
 		type: Boolean,
 		default: false
 	},
-	permissionSettings:{
-		type: mongoose.Schema.Types.ObjectId,
-		ref: 'Permissions'
-	},
-	admins: [{
-		type: mongoose.Schema.Types.ObjectId,
-		ref: 'User',
-	}],
-	deputyadmins: [{
-		type: mongoose.Schema.Types.ObjectId,
-		ref: 'User',
-	}],
 	createdAt: {
 		type: Date,
 		default: Date.now
@@ -71,10 +49,10 @@ const conversationSchema = new mongoose.Schema({
 	}
 });
 
-conversationSchema.index({participants: 1});
-conversationSchema.index({type: 1});
-conversationSchema.index({creator: 1});
-conversationSchema.index({deparmentId: 1});
-conversationSchema.index({permissionSettings: 1});
+conversationSchema.index({
+	type: 1,
+	creator: 1,
+	departmentId: 1,
+});
 
 module.exports = mongoose.model('Conversation', conversationSchema);

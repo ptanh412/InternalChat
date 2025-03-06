@@ -7,3 +7,9 @@ const authentication = require('../middlewares/authentication');
 router.post('/department', authentication, conversationController.createConvDepartment);
 router.put('/department', authentication, conversationController.updateConvDepartment);
 router.delete('/department/:id', authentication, conversationController.deleteConvDepartment);
+router.post('/group', authentication, conversationController.createConvGroup);
+router.put('/update-group', authentication, conversationController.updateAllMembersChatPermission);
+router.post('/assign-deputy', authentication, conversationController.assignDeputyAdmin);
+router.post('/transfer-admin', authentication, conversationController.transferAdminRole);
+
+module.exports = router;

@@ -6,7 +6,7 @@ const getUserIdFromToken = (token) => {
 	};
 
 	const decode = verifyToken(token);
-	return decode.id;
+	return decode.userId;
 };
 
 module.exports = getUserIdFromToken;

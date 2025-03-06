@@ -6,10 +6,6 @@ const permissionsSchema = new mongoose.Schema({
 		required: true,
 		unique: true,
 	},
-	scope:{
-		type: String,
-		enum: ['system', 'conversation_group', 'conversation_department', 'conversation_private'],
-	},
 	createGroup:{	
 		type: Boolean,
 		default: false
@@ -23,26 +19,6 @@ const permissionsSchema = new mongoose.Schema({
 		default: false
 	},
 	manageUsers:{
-		type: Boolean,
-		default: false
-	},
-	assignDeputies:{
-		type: Boolean,
-		default: false
-	},
-	canChat:{
-		type: Boolean,
-		default: false
-	},
-	canAddMembers:{
-		type: Boolean,
-		default: false
-	},
-	canRemoveMembers:{
-		type: Boolean,
-		default: false
-	},
-	canEditConversation:{
 		type: Boolean,
 		default: false
 	},

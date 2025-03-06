@@ -6,6 +6,5 @@ const authorize = require('../middlewares/authorizeAdmin');
 
 router.get('/matrix', authenicate, authorize, permissionController.getPermissionsMatrix);
 router.post('/update/:roleId', authenicate, authorize, permissionController.updateRolePermissions);
-router.post('/initialize', authenicate, authorize, permissionController.initializePermissions);
 
 module.exports = router;
