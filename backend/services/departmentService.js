@@ -33,8 +33,16 @@ const createDepartment = async (name, headerId, description) =>{
 
 const updateDepartment = async (departmentId, updateData) =>{
 	try {
-		const department = await Department.findByIdAndUpdate(departmentId);
+		const department = await Department.findById(departmentId);
 		if(!department) throw new Error('Department not found');
+
+		if (updateData.name){
+			department.name = updateData.name;
+		}
+
+		if (updateData.description){
+			department.description = updateData.description;
+		}
 
 		if (updateData.header && department.header?.toString() !== updateData.header){
 			if (department.header){
@@ -47,9 +55,26 @@ const updateDepartment = async (departmentId, updateData) =>{
 			});
 		}
 
-		Object.keys(updateData).forEach(key => {
-			department[key] = updateData[key];
-		});
+		if (updateData.deputyHeader && department.deputyHeader?.toString() !== updateData.deputyHeader){
+			if (department.deputyHeader){
+				await Users.findByIdAndUpdate(department.deputyHeader,{
+					position: 'Employee',
+				})
+			}
+			await Users.findByIdAndUpdate(updateData.deputyHeader,{
+				position: 'Deputy Head',
+			});
+		}
+		if (updateData.members && Array.isArray(updateData.members)) {
+			// Gán trực tiếp mảng member mới
+			department.members = updateData.members;
+		  }
+
+		  Object.keys(updateData).forEach(key => {
+			if (key !== 'member') { // Bỏ qua member vì đã xử lý ở trên
+			  department[key] = updateData[key];
+			}
+		  });
 		department.updatedAt = new Date();
 
 		await department.save();
@@ -82,8 +107,18 @@ const deleteDepartment = async (departmentId) =>{
 	}
 }
 
+const getDepartment = async () =>{
+	try{
+		const departments = await Department.find().populate('header', 'name avatar').populate('members', 'name avatar');
+		return departments;
+	}catch(error){
+		throw error;
+	}
+}
+
 module.exports = {
 	createDepartment,
 	updateDepartment,
-	deleteDepartment
+	deleteDepartment,
+	getDepartment
 }

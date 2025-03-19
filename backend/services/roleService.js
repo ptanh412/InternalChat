@@ -97,15 +97,15 @@ const deleteRole = async (roleId) => {
 }
 
 const getAllRoles = async () => {
-	try {
-		const roles = await Roles.find()
-			.populate('permissions')
-			.populate('customPermissions')
+    try {
+        const roles = await Roles.find()
+            .populate('permissions', 'name createGroup createDepartment manageDepartment manageUsers')
+            .populate('customPermissions')
 
-		return roles;
-	} catch (error) {
-		throw error;
-	}
+        return roles;
+    } catch (error) {
+        throw error;
+    }
 }
 
 const getRoleWithScopePermissions = async (roleId, scope) => {

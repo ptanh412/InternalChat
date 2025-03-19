@@ -51,7 +51,7 @@ const createConvDepartment = async (req, res) => {
 const updateConvDepartment = async (req, res) => {
     try {
         // Validate required fields
-        if (!req.body.conversationId) {
+        if (!req.params.id) {
             return res.status(400).json({
                 success: false,
                 message: 'Conversation ID is required'
@@ -59,7 +59,11 @@ const updateConvDepartment = async (req, res) => {
         }
 
         // Update conversation
-        const updatedConversation = await conversationService.updateConvDepartment(req.body, req.user);
+        const updatedConversation = await conversationService.updateConvDepartment(
+            req.params.id,
+            req.body, 
+            req.user
+        );
         
         return res.status(200).json({
             success: true,

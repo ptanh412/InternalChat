@@ -149,8 +149,7 @@ const getUsers = async (req, res) =>{
 		);
 		return res.status(200).json({
 			success: true,
-			data: result.users,
-			pagination: result.pagination
+			data: result
 		})
 	}catch(error){
 		console.error('Get users error: ', error.message);
@@ -161,11 +160,29 @@ const getUsers = async (req, res) =>{
 	}
 }
 
+const getUserId = async (req, res) =>{
+	try {
+		const {userId} = req.params;
+		const result = await authService.getUserById(userId);
+		return res.status(200).json({
+			success: true,
+			data: result
+		})
+	} catch (error) {
+		console.error('Get user by id error: ', error.message);
+		return res.status(500).json({
+			success: false,
+			message: error.message || 'Failed to get user'
+		});
+	}
+}
+
 module.exports = {
 	createUser,
 	login,
 	changePassword,
 	updateUser,
 	resetPassword,
-	getUsers
+	getUsers,
+	getUserId
 };

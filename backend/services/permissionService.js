@@ -19,7 +19,7 @@ const getPermissionsMatrix = async () =>{
 			'createGroup',
 			'createDepartment',
 			'manageDepartment',
-			'mangeUsers',
+			'manageUsers',
 		]
 
 		const permissionsMatrix = {
@@ -37,7 +37,6 @@ const getPermissionsMatrix = async () =>{
 				}
 			})
 		}
-
 		return permissionsMatrix;
 	}catch	(error){
 		throw new Error(`Failed to fetch permission matrix: ${error.message}`);

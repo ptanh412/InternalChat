@@ -1,127 +1,152 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, use } from "react";
 import { io } from "socket.io-client";
+import axios from "axios";
 
 const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
-    const [user, setUser] = useState(() => ({
-        _id: localStorage.getItem("userId") || "",
-        name: localStorage.getItem("name") || "Guest",
-        email: localStorage.getItem("email") || "",
-        token: localStorage.getItem("token") || "",
-        status: localStorage.getItem("status") || "Please login to chat",
-        avatar: localStorage.getItem("avatar") || "",
-        lastActive: localStorage.getItem("lastActive") || "",
-        phoneNumber: localStorage.getItem("phoneNumber") || "",
-        role: localStorage.getItem("role") || "",
-		deparment: localStorage.getItem("deparment") || "",
-		position: localStorage.getItem("position") || "",
-    }));
+    const [user, setUser] = useState([]);
     const [socket, setSocket] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [onlineUsers, setOnlineUsers] = useState({});
 
     useEffect(() => {
-        if (user.token) {
-            const newSocket = io("http://localhost:5000", {
-                auth: { token: user.token },
-            });
-            newSocket.on("connect", () => {
-                newSocket.emit('user:online', {
-                    _id: user._id,
-                    status: 'online',
-                    lastActive: new Date(),
-                    name: user.name,
-                    avatar: user.avatar
-                });
-            });
+        const storedUser = localStorage.getItem("userData");
+        const token = localStorage.getItem("token");
 
-            setSocket(newSocket);
-
-            return () => {
-                if (newSocket) {
-                    newSocket.disconnect();
+        if (storedUser && token){
+            try{
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+    
+                if (window.location.pathname !== "/login"){
+                    connectSocket(token);
                 }
-            };
-        }
-    }, [user.token]);
-
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleUserOnline = (data) => {
-            // console.log('User Online Event:', data);
-
-            setUser((prevUser) => {
-                if (data._id === prevUser._id) {
-                    localStorage.setItem("status", data.status || 'online');
-                    localStorage.setItem("lastActive", data.lastActive || new Date());
-                }
-                return {
-                    ...prevUser,
-                    status: data._id === prevUser._id ? data.status || 'online' : prevUser.status,
-                    lastActive: data._id === prevUser._id ? data.lastActive || new Date() : prevUser.lastActive
-                }
-            });
-        }
-        const handleUserOffline = (data) => {
-            setUser((prevUser) => {
-                if (data._id === prevUser._id) {
-                    localStorage.setItem("status", data.status || 'offline');
-                    localStorage.setItem("lastActive", data.lastActive || new Date());
-                }
-                return {
-                    ...prevUser,
-                    status: data._id === prevUser._id ? data.status || 'offline' : prevUser.status,
-                    lastActive: data._id === prevUser._id ? data.lastActive || new Date() : prevUser.lastActive
-                }
-            });
-        }
-        socket.on("user:online", handleUserOnline);
-        socket.on("user:offline", handleUserOffline);
-        return () => {
-            socket.off("user:online", handleUserOnline);
-            socket.off("user:offline", handleUserOffline);
-        };
-    }, [socket, user._id]);
-    const logout = () => {
-        return new Promise((resolve) => {
-            if (socket) {
-                // Update local state first
-                localStorage.clear();
-                setUser({
-                    _id: "",
-                    name: "Guest",
-                    token: "",
-                    status: "offline",
-                    avatar: "",
-                    lastActive: null,
-                });
-                
-                // Then emit offline status
-                socket.emit('user:offline', {
-                    _id: user._id,
-                    status: 'offline',
-                    lastActive: new Date()
-                });
-                
-                socket.disconnect();
-                setSocket(null);
+            }catch(error){
+                console.error("Error getting user data", error);
+                localStorage.removeItem("userData");
+                localStorage.removeItem("token");
             }
-            resolve();
+        };
+
+        setLoading(false);
+    }, []);
+
+    const connectSocket = (token) =>{
+
+        if (socket){
+            socket.disconnect();
+        }
+        const newSocket = io("http://localhost:5000", {
+            auth: {
+                token
+            },
+            autoConnect: false,
+        });   
+        
+        newSocket.on('connect', () => {
+            console.log("Socket connected");
         });
+
+        newSocket.on('user:status', (data) =>{
+            setOnlineUsers(prev =>({
+                ...prev,
+                [data.userId]: data.status
+            }))
+        });
+
+        newSocket.on('connect_error', (err) =>{
+            console.error('Socket connection error', err.message);
+        });
+        newSocket.connect();
+        setSocket(newSocket);
+        return newSocket;
+    }
+    const login = async (email, password) =>{
+        try{
+            const response = await axios.post("http://localhost:5000/api/auth/login", {
+                email,
+                password
+            },{
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.data.success){
+                const userData = response.data.data;
+                const token = userData.token;
+                const userInfo = userData.user;
+
+                localStorage.setItem("token", token);
+                localStorage.setItem("userData", JSON.stringify(userInfo));
+
+                setUser(userInfo);
+
+                connectSocket(token);
+
+                return{
+                    success: true,
+                    message: response.data.message,
+                    user: userInfo,
+                    isAdmin: userInfo.role.name === "admin",
+                    token: token
+                }
+            }else{
+                return{
+                    success: false,
+                    message: response.data.message
+                }
+            }
+        }catch(error){
+            console.error("Login error", error);
+            return{
+                success: false,
+                message: error.response.data.message || "Error logging in"
+            }
+        }
+    }
+
+    const logout = () =>{
+        if (socket){
+            socket.emit('user:logout');
+            socket.disconnect();
+        }
+
+        localStorage.removeItem("token");
+        localStorage.removeItem("userData");
+
+        setUser(null);
+        setSocket(null);
     };
-    const updateUser = (updates) => {
-        const updatedUser = { ...user, ...updates };
-        setUser(updatedUser);
-        Object.entries(updates).forEach(([key, value])=>{
-            localStorage.setItem(key, value || ""); ;
-        })
+
+    const getUserStatus = (userId) =>{
+        if(onlineUsers[userId]){
+            return onlineUsers[userId];
+        }
+        return "offline";
     };
-    return (
-        <UserContext.Provider value={{ user, setUser, socket, setSocket, logout, updateUser }}>
-            {children}
-        </UserContext.Provider>
-    );
+    const value = {
+        user,
+        setUser,
+        login,
+        logout,
+        socket,
+        onlineUsers,
+        loading,
+        getUserStatus,
+        connectSocket
+    };
+    
+    return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 };
 
-export const useUser = () => useContext(UserContext);
+export const useUser = () => {
+    const context = useContext(UserContext);
+
+    if (!context){
+        throw new Error("useUser must be used within a UserProvider");
+    }
+
+    return context;
+}

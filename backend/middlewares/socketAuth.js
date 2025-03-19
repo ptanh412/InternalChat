@@ -19,6 +19,7 @@ const socketAuth = async (socket, next) => {
 		};
 
 		socket.user = user;
+		socket.userId = user._id;
 		next();
 	} catch (error) {
 		console.log(error);

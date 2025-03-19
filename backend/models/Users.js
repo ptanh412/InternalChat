@@ -69,6 +69,7 @@ const userSchema = new mongoose.Schema({
 		default: Date.now
 	}
 });
+
 userSchema.pre('save', function (next) {
 	if (this.isModified('position')  || !this.role){
 		const positionToRoleMap = {

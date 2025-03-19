@@ -33,6 +33,7 @@ router.post('/reset-password', [
 ], authController.resetPassword);
 
 router.get('/get-user', authentication, authController.getUsers);
+router.get('/get-user/:userId', authentication, authController.getUserId);
 
 
 module.exports = router;

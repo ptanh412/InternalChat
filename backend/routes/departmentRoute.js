@@ -5,15 +5,14 @@ const authorization = require('../middlewares/authorizeAdmin');
 const authentication = require('../middlewares/authentication');
 const {check} = require('express-validator');
 
+
+router.get('/', authentication, authorization, departmentController.getAllDepartment);
 router.post('/create', [
 	check('name').not().isEmpty().withMessage('Department name is required'),
 	check('description').not().isEmpty().withMessage('Department description is required')
 ],authentication, authorization, departmentController.create);
 
-router.put('/update/:departmentId', [
-	check('name').not().isEmpty().withMessage('Department name is required'),
-	check('description').not().isEmpty().withMessage('Department description is required')
-],authentication, authorization, departmentController.update);
+router.put('/update/:departmentId', authentication, authorization, departmentController.update);
 
 
 router.delete('/delete/:departmentId', authentication, authorization, departmentController.remove);

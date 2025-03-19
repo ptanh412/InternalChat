@@ -1,10 +1,9 @@
 const Conversations = require('../models/Conversations');
 const Department = require('../models/Department');
-const Permissions = require('../models/Permissions');
 const Users = require('../models/Users');
-const helper = require('../helper/permission');
 const ConversationMember = require('../models/ConversationMember');
-const { default: mongoose } = require('mongoose');
+const messageService = require('./messageService');
+const socketService = require('./socketService');
 
 const createConvDepartment = async (departmentData, creator) => {
 	try {
@@ -82,25 +81,30 @@ const createConvDepartment = async (departmentData, creator) => {
 			{ conversationId: conversation._id }
 		)
 
+		await socketService.getSocket().createPersonalizedSystemmessage({
+			conversationId: conversation._id,
+			actorId: creator._id,
+			action: 'create_conversation',
+			data: { conversationName: conversation.name }
+		})
+
+		await socketService.getSocket().notifyDepartmentConversationCreated(conversation);
+
 		return conversation;
 	} catch (error) {
 		throw error;
 	}
 };
 
-const updateConvDepartment = async (updateData, user) => {
+const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 	try {
-
-		console.log('user', user);
-		const conversation = await Conversations.findById(updateData.conversationId);
+		const conversation = await Conversations.findById(conversationId).lean().exec();
 		if (!conversation || conversation.type !== 'department') throw new Error('Conversation not found');
 
 		const member = await ConversationMember.findOne({
 			conversationId: conversation._id,
-			memberId: user._id
+			memberId: updatedBy._id
 		}).lean().exec();
-
-		console.log('member', member);
 
 		if (!member) throw new Error('User is not a member of this conversation');
 
@@ -113,22 +117,35 @@ const updateConvDepartment = async (updateData, user) => {
 		};
 
 		const updateFields = {};
+		const systemMessageData = {
+			conversationId: conversation._id,
+			actorId: updatedBy._id,
+			action: '',
+			data: {}
+		}
 
-		if (updateData.name) {
+		if (updateData.name && updateData.name !== conversation.name) {
 			updateFields.name = updateData.name;
+			systemMessageData.action = 'update_name';
+			systemMessageData.data = {newName: updateData.name, oldName: conversation.name};
 		}
 
 		if (updateData.avatarGroup) {
 			updateFields.avatarGroup = updateData.avatarGroup;
+			systemMessageData.action = 'update_avatar';
 		};
 
-		updateFields.updaatedAt = new Date();
+		updateFields.updatedAt = new Date();
 
 		const updatedConversation = await Conversations.findByIdAndUpdate(
 			conversation._id,
 			{ $set: updateFields },
 			{ new: true }
-		)
+		).lean().exec();
+
+		if (systemMessageData.action) {
+			await socketService.getSocket().createPersonalizedSystemmessage(systemMessageData);
+		}
 
 		if (updateData.addMembers && updateData.addMembers.length > 0 && Array.isArray(updateData.addMembers)) {
 
@@ -136,15 +153,17 @@ const updateConvDepartment = async (updateData, user) => {
 				throw new Error('User does not have permission to add members');
 			}
 
-			const department = await Department.findById(conversation.departmentId).lean().exec();
-			if (!department) throw new Error('Department not found');
+			const addedUsers = await Users.find({
+				_id: { $in: updateData.addMembers },
+			}).select('_id name').lean().exec();
 
-			const departmentUsers = await Users.find({
-				deparment: department._id,
-				_id: { $in: department.members },
-			}).select('_id').lean().exec();
+			if (!addedUsers || addedUsers.length === 0) {
+				throw new Error('No valid users found to add');
+			}
 
-			for (const user of departmentUsers) {
+			const addedMemberIds = [];
+
+			for (const user of addedUsers) {
 				const existingMember = await ConversationMember.findOne({
 					conversationId: conversation._id,
 					memberId: user._id
@@ -162,7 +181,26 @@ const updateConvDepartment = async (updateData, user) => {
 							canEditConversation: false
 						}
 					});
+					addedMemberIds.push(user._id.toString());
 				}
+			}
+
+			if (addedMemberIds.length > 0) {
+				await socketService.getSocket().createPersonalizedSystemmessage({
+					conversationId: conversation._id,
+					actorId: updatedBy._id,
+					action: 'add_member',
+					data: { 
+						addedMemberIds, 
+						addedMembers: addedUsers 
+					}
+				})
+
+				for(const memberId of addedMemberIds){
+					await socketService.getSocket().addMemberToConversation(conversationId, memberId);
+				}
+
+				await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 			}
 		}
 
@@ -182,16 +220,32 @@ const updateConvDepartment = async (updateData, user) => {
 				memberId => !adminIds.includes(memberId.toString())
 			);
 
-			if (safeToRemove.length > 0) {
+			const removedUsers = await Users.find({
+				_id: { $in: safeToRemove }
+			}).select('_id name').lean().exec();
+
+			const removedMemberIds = removedUsers.map(user => user._id.toString());
+
+			if (safeToRemove.length > 0 && removedMemberIds.length > 0) {
 				await ConversationMember.deleteMany({
 					conversationId: conversation._id,
 					memberId: { $in: safeToRemove },
 					role: 'member'
+				});
+
+				await socketService.getSocket().createPersonalizedSystemmessage({
+					conversationId: conversation._id,
+					actorId: updatedBy._id,
+					action: 'remove_member',
+					data: { removedMemberIds, removedMembers: removedUsers }
 				})
+
+				await socketService.getSocket().removeMemberFromConversation(conversationId, removedMemberIds);
+				await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 			}
 		}
+		await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 		return updatedConversation;
-
 	} catch (error) {
 		throw error;
 	}
@@ -332,8 +386,9 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 		const targetMember = await ConversationMember.findOne({
 			conversationId: conversationId,
 			memberId: targetUserId
-		});
+		}).populate('memberId', 'name').lean().exec();
 
+		console.log()
 		if (!targetMember) throw new Error('Target user is not a member of this conversation');
 
 		if (targetMember.role === 'admin' || targetMember.role === 'deputy_admin') {
@@ -356,7 +411,17 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 			},
 			{ new: true }
 		);
-
+		await socketService.getSocket().createPersonalizedSystemmessage({
+			conversationId,
+			actorId: currentUserId,
+			action: 'assign_deputy_admin',
+			data:{
+				deputyMember:{
+					id: targetUserId,
+					name: targetMember.memberId.name
+				}
+			}
+		})
 		return {
 			success: true,
 			message: 'Deputy admin assigned',
@@ -378,7 +443,7 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 		const newAdmin = await ConversationMember.findOne({
 			conversationId: conversationId,
 			memberId: newAdminId
-		});
+		}).populate('memberId', 'name').lean().exec();
 
 		if (!newAdmin) throw new Error('New admin is not a member of this conversation');
 
@@ -420,6 +485,18 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 				}
 			}
 		);
+
+		await socketService.getSocket().createPersonalizedSystemmessage({
+			conversationId,
+			actorId: currentUserId,
+			action: 'transfer_admin',
+			data: {
+				newAdmin:{
+					id: newAdminId,
+					name: newAdmin.memberId.name
+				}
+			}
+		});
 		return {
 			success: true,
 			message: 'Admin role transferred successfully',

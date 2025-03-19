@@ -1,51 +1,65 @@
-import { useState } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import './App.css'
 import Login from './pages/Login'
 import { AlertProvider } from './context/AlertMessage'
 import "./styles/index.css"
+import Home from './pages/admin/Home'
+import Accounts from './components/admin/Accounts'
+import AdminLayout from './components/layout/AdminLayout'
+import Roles from './components/admin/Roles'
+import Department from './components/admin/Department'
+import { UserProvider } from './context/UserContext'
+import { ThemeProvider } from './context/ThemeContext'
+import EditAccount from './components/admin/EditAccount'
+import Permissions from './components/admin/Permissions'
+import Chat from './components/user/Chat'
+import UserLayout from './components/layout/UserLayout'
 
 
 const App = () => {
-  const [count, setCount] = useState(0)
+
+  const adminRoutes = [
+    { path: '/admin-home', element: <Home /> },
+    { path: '/accounts', element: <Accounts /> },
+    {path: '/accounts/add-account', element: <EditAccount />},
+    {path: '/accounts/edit-account/:id', element: <EditAccount />},
+    { path: '/roles', element: <Roles /> },
+    { path: '/departments', element: <Department /> },
+    {path: '/permissions', element: <Permissions />}
+  ];
+
+  const userRoutes = [
+    {path: '/chat', element: <Chat />}
+  ]
 
   return (
-    <AlertProvider>
-      <Router>
-        <Routes>
-          <Route path='/login' element={<Login />} />
-          <Route path='/' element={
-            <>
-              <div>
-                HI 
-                {/* <a href="https://vite.dev" target="_blank">
-                  <img src={viteLogo} className="logo" alt="Vite logo" />
-                </a>
-                <a href="https://react.dev" target="_blank">
-                  <img src={reactLogo} className="logo react" alt="React logo" />
-                </a>
-              </div>
-              <h1>Vite + React</h1>
-              <div className="card">
-                <button onClick={() => setCount((count) => count + 1)}>
-                  count is {count}
-                </button>
-                <p>
-                  Edit <code>src/App.jsx</code> and save to test HMR
-                </p>
-              </div>
-              <p className="read-the-docs">
-                Click on the Vite and React logos to learn more
-              </p> */}
-              </div>
-            </>
-          } />
-        </Routes>
-      </Router>
-    </AlertProvider>
+    <UserProvider>
+      <ThemeProvider>
+        <AlertProvider>
+          <Router>
+            <Routes>
+              <Route path='/login' element={<Login />} />
+              {adminRoutes.map((route, index) => (
+                <Route key={index} path={route.path} element={
+                  <AdminLayout>
+                    {route.element}
+                  </AdminLayout>
+                } />
+              ))}
+              {userRoutes.map((route, index) => (
+                <Route key={index} path={route.path} element={
+                  <UserLayout>
+                    {route.element}
+                  </UserLayout>
+                } />
+              ))}
+              <Route path='/' element={<Home />} />
+            </Routes>
+          </Router>
+        </AlertProvider>
+      </ThemeProvider>
+    </UserProvider>
   )
 }
 
-export default App
+export default App;
