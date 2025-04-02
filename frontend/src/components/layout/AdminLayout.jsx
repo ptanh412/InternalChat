@@ -22,8 +22,6 @@ const AdminLayout = ({ children }) => {
         setCollapsedSidebar(!collapsedSidebar);
     }
 
-
-
     return (
         <div className={`flex h-screen overflow-hidden ${theme === 'dark' ? 'dark' : ''}`}>
             <div className={`transition-all duration-300 ${collapsedSidebar ? 'w-16' : 'w-64'}`}>

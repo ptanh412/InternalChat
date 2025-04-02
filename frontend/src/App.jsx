@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
 import Login from './pages/Login'
 import { AlertProvider } from './context/AlertMessage'
@@ -21,15 +21,15 @@ const App = () => {
   const adminRoutes = [
     { path: '/admin-home', element: <Home /> },
     { path: '/accounts', element: <Accounts /> },
-    {path: '/accounts/add-account', element: <EditAccount />},
-    {path: '/accounts/edit-account/:id', element: <EditAccount />},
+    { path: '/accounts/add-account', element: <EditAccount /> },
+    { path: '/accounts/edit-account/:id', element: <EditAccount /> },
     { path: '/roles', element: <Roles /> },
     { path: '/departments', element: <Department /> },
-    {path: '/permissions', element: <Permissions />}
+    { path: '/permissions', element: <Permissions /> }
   ];
 
   const userRoutes = [
-    {path: '/chat', element: <Chat />}
+    { path: '/chat', element: <Chat /> }
   ]
 
   return (
@@ -38,6 +38,7 @@ const App = () => {
         <AlertProvider>
           <Router>
             <Routes>
+              <Route path='/' element={<Navigate to="/login" replace />} />
               <Route path='/login' element={<Login />} />
               {adminRoutes.map((route, index) => (
                 <Route key={index} path={route.path} element={

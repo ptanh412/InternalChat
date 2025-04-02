@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const conversationSchema = new mongoose.Schema({
-	isVisble:{
+	isVisible:{
 		type: Boolean,
 		default: true
 	},
@@ -25,7 +25,7 @@ const conversationSchema = new mongoose.Schema({
 	},
 	lastMessage:{
 		type: mongoose.Schema.Types.ObjectId,
-		ref: 'Messages',
+		ref: 'Message',
 	},
 	departmentId:{
 		type: mongoose.Schema.Types.ObjectId,

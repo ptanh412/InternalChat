@@ -209,6 +209,21 @@ const transferAdminRole  = async (req, res) => {
     }
 }
 
+const getConversationByUserId = async (req, res) => {
+    try {
+        const conversation = await conversationService.getConvById(req.params.userId);
+        return res.status(200).json({
+            success: true,
+            data: conversation
+        });
+    } catch (error) {
+        console.error('Get conversation by user ID error:', error.message);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
 module.exports = {
     createConvDepartment,
     updateConvDepartment,
@@ -216,5 +231,6 @@ module.exports = {
     createConvGroup,
     updateAllMembersChatPermission,
     assignDeputyAdmin,
-    transferAdminRole
+    transferAdminRole,
+    getConversationByUserId
 };

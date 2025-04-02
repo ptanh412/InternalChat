@@ -24,7 +24,7 @@ const Login = () => {
 				if (result.isAdmin) {
 					navigation("/admin-home");
 				}else{
-					navigation("/")
+					navigation("/chat")
 				}
 
 			} else {

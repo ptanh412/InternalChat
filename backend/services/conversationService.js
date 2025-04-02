@@ -4,6 +4,7 @@ const Users = require('../models/Users');
 const ConversationMember = require('../models/ConversationMember');
 const messageService = require('./messageService');
 const socketService = require('./socketService');
+const { populate } = require('../models/Counters');
 
 const createConvDepartment = async (departmentData, creator) => {
 	try {
@@ -127,7 +128,7 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 		if (updateData.name && updateData.name !== conversation.name) {
 			updateFields.name = updateData.name;
 			systemMessageData.action = 'update_name';
-			systemMessageData.data = {newName: updateData.name, oldName: conversation.name};
+			systemMessageData.data = { newName: updateData.name, oldName: conversation.name };
 		}
 
 		if (updateData.avatarGroup) {
@@ -190,13 +191,13 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 					conversationId: conversation._id,
 					actorId: updatedBy._id,
 					action: 'add_member',
-					data: { 
-						addedMemberIds, 
-						addedMembers: addedUsers 
+					data: {
+						addedMemberIds,
+						addedMembers: addedUsers
 					}
 				})
 
-				for(const memberId of addedMemberIds){
+				for (const memberId of addedMemberIds) {
 					await socketService.getSocket().addMemberToConversation(conversationId, memberId);
 				}
 
@@ -358,7 +359,7 @@ const updateAllMembersChat = async (conversationId, userId, chatEnabled) => {
 		await checkconversationPermission(conversationId, userId, ['admin', 'deputy_admin']);
 
 		const updateResult = await ConversationMember.updateMany(
-			{ 
+			{
 				conversationId,
 				role: 'member'
 			},
@@ -415,8 +416,8 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 			conversationId,
 			actorId: currentUserId,
 			action: 'assign_deputy_admin',
-			data:{
-				deputyMember:{
+			data: {
+				deputyMember: {
 					id: targetUserId,
 					name: targetMember.memberId.name
 				}
@@ -491,7 +492,7 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 			actorId: currentUserId,
 			action: 'transfer_admin',
 			data: {
-				newAdmin:{
+				newAdmin: {
 					id: newAdminId,
 					name: newAdmin.memberId.name
 				}
@@ -507,6 +508,87 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 		throw error;
 	}
 }
+
+const getConvById = async (currentUserId) => {
+	try {
+		const user = await Users.findById(currentUserId).lean().exec();
+
+		if (!user) throw new Error('User not found');
+
+		const conversationMembers = await ConversationMember.find({
+			memberId: currentUserId
+		})
+			.lean()
+			.exec();
+
+		const conversationIds = conversationMembers.map(cm => cm.conversationId);
+
+		const conversations = await Conversations.find({
+			_id: { $in: conversationIds }
+		})
+			.populate({
+				path: 'lastMessage',
+				select: 'content type createdAt attachments sentAt sender isRecalled isEdited status replyTo',
+				populate: [
+					{
+						path: 'sender',
+						select: 'name avatar position status',
+					},
+					{
+						path: 'replyTo',
+						select: 'content type createdAt attachments sentAt sender isRecalled isEdited status replyTo',
+						populate:{
+							path: 'sender',
+							select: 'name avatar position status'
+						}
+					}
+				]
+			})
+			.populate({
+				path: 'creator',
+				select: 'name avatar'
+			})
+			.lean()
+			.exec();
+
+		const populatedConversations = await Promise.all(
+			conversations.map(async (conversation) => {
+				const members = await ConversationMember.find({
+					conversationId: conversation._id
+				})
+					.populate({
+						path: 'memberId',
+						select: 'name avatar position status',
+						populate: {
+							path: 'department',
+							select: 'name'
+						}
+					})
+					.lean();
+				const userMember = await ConversationMember.findOne({
+					conversationId: conversation._id,
+					memberId: currentUserId
+				}).lean();
+
+				console.log('Conversation:', conversation);
+
+				return {
+					_id: userMember._id,
+					conversationInfo: {
+						...conversation,
+						members: members.map(member => member.memberId),
+					},
+					memberId: currentUserId,
+					unreadCount: userMember.unreadCount,
+					joinedAt: userMember.joinedAt
+				}
+			})
+		)
+		return populatedConversations;
+	} catch (error) {
+		throw error;
+	}
+}
 module.exports = {
 	createConvDepartment,
 	updateConvDepartment,
@@ -514,5 +596,6 @@ module.exports = {
 	createConvGroup,
 	updateAllMembersChat,
 	assignDeputyAdmin,
-	transferAdminRole
+	transferAdminRole,
+	getConvById
 }

@@ -945,6 +945,8 @@ const getAllUsers = async (queryParams = {}, page = 1, limit = 10) => {
 
 		const totalUsers = await Users.countDocuments(filters);
 
+		console.log('Users:', users);
+
 		return {
 			users,
 			pagination: {

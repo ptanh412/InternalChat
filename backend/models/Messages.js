@@ -25,11 +25,15 @@ const messageSchema = new mongoose.Schema({
 		emoji: {
             type: String,
             enum: ['❤️', '👍', '😮', '😠', '😢', '✅', '❌', '📌'],
+			count:{
+				type: Number,
+				default: 1
+			},
             required: true
         },
         user: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'Users',
+            ref: 'User',
             required: true
         },
         createdAt: {

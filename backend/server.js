@@ -11,6 +11,7 @@ const roleRoutes = require('./routes/roleRoutes.js');
 const departmentRoutes = require('./routes/departmentRoute');
 const conversationRoutes = require('./routes/conversationRoute');
 const userSettingRoute = require('./routes/userSettingRoute');
+const messageRoute = require('./routes/messageRoute');
 const server = http.createServer(app);
 const socketService = require('./services/socketService');
 
@@ -28,6 +29,7 @@ app.use('/api/role', roleRoutes);
 app.use('/api/department', departmentRoutes);
 app.use('/api/conversation', conversationRoutes);
 app.use('/api/userSetting', userSettingRoute);
+app.use('/api/message', messageRoute);
 
 
 const PORT = process.env.PORT;

@@ -11,5 +11,6 @@ router.post('/group', authentication, conversationController.createConvGroup);
 router.put('/update-group', authentication, conversationController.updateAllMembersChatPermission);
 router.post('/assign-deputy', authentication, conversationController.assignDeputyAdmin);
 router.post('/transfer-admin', authentication, conversationController.transferAdminRole);
+router.get('/user/:userId', authentication, conversationController.getConversationByUserId);
 
 module.exports = router;

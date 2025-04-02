@@ -53,6 +53,15 @@ export const UserProvider = ({ children }) => {
                 ...prev,
                 [data.userId]: data.status
             }))
+
+            if (data.userId === user._id){
+                const userData = JSON.parse(localStorage.getItem("userData"));
+
+                if (userData){
+                    userData.status = data.status;
+                    localStorage.setItem("userData", JSON.stringify(userData));
+                }
+            }
         });
 
         newSocket.on('connect_error', (err) =>{
@@ -77,6 +86,8 @@ export const UserProvider = ({ children }) => {
                 const userData = response.data.data;
                 const token = userData.token;
                 const userInfo = userData.user;
+
+                userInfo.status = "online";
 
                 localStorage.setItem("token", token);
                 localStorage.setItem("userData", JSON.stringify(userInfo));
@@ -121,6 +132,9 @@ export const UserProvider = ({ children }) => {
     };
 
     const getUserStatus = (userId) =>{
+        if (userId === user._id){
+            return user.status || "offline";
+        }
         if(onlineUsers[userId]){
             return onlineUsers[userId];
         }

@@ -1,18 +1,69 @@
 import { CiSearch } from "react-icons/ci";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MdGroupAdd } from "react-icons/md";
-import { useRef } from "react";
+import axios from "axios";
+import { useUser } from "../../context/UserContext";
 
 const Groups = () => {
+    const [users, setUsers] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const { user } = useUser();
 
-    const groups = [
-        { id: 1, name: "Reporting" },
-        { id: 2, name: "General" },
-        { id: 3, name: "Designer" },
-        { id: 4, name: "Developers" }
-    ]
+    useEffect(() => {
+        const fetchUsers = async () => {
+            try {
+                const response = await axios.get("http://localhost:5000/api/auth/get-user", {
+                    headers: {
+                        Authorization: `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                if (response.data.success) {
+                    setUsers(response.data.data.users);
+                    console.log(response.data.data.users);
+                }
+            } catch (error) {
+                console.log(error);
+            }
+        }
+        const fetchGroups = async () => {
+            try {
+                const response = await axios.get(`http://localhost:5000/api/conversation/user/${user._id}`, {
+                    headers: {
+                        Authorization: `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                if (response.data.success) {
+                    setGroups(response.data.data);
+                    console.log(response.data.data);
+                }
+            } catch (error) {
+                console.log(error);
+            }
+        }
+        fetchUsers();
+        fetchGroups();
+    }, []);
     const [showMembers, setShowMembers] = useState(false);
+    const [selectedMembers, setSelectedMembers] = useState({});
     const [showForm, setShowForm] = useState(false);
+
+    const sortedMembers = users.reduce((acc, member) => {
+        const firstLetter = member.name.charAt(0).toUpperCase();
+        if (!acc[firstLetter]) {
+            acc[firstLetter] = [];
+        }
+        acc[firstLetter].push(member);
+        return acc;
+    }, {});
+
+    const toggleMemberSelection = (name) => {
+        setSelectedMembers((prev) => ({
+            ...prev,
+            [name]: !prev[name]
+        }));
+    }
     return (
         <div className="p-4 w-full z-0 mt-3">
             <div className="flex items-center justify-between">
@@ -26,7 +77,7 @@ const Groups = () => {
             </div>
             {showForm && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className={`p-8 rounded-lg w-[600px] bg-neutral-900 space-y-5`}>
+                    <div className={`p-8 rounded-lg w-[500px] bg-neutral-900 space-y-5`}>
                         <h2 className="text-2xl font-bold mb-4">Create Group Conversation</h2>
                         <input
                             type="text"
@@ -37,14 +88,28 @@ const Groups = () => {
                         <div>
                             <button className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300" onClick={() => setShowMembers(!showMembers)}>Select Members</button>
                             {showMembers && (
-                                <div className="mt-4 space-y-10 text-sm bg-neutral-800 p-5 rounded-lg">
-                                    <p><strong>Name:</strong> Patricia Smith</p>
-                                    <p><strong>Email:</strong> <span className="text-blue-400">adc@123.com</span></p>
-                                    <p><strong>Position:</strong> Admin</p>
-                                    <p><strong>Departmant:</strong> IT</p>
-                                    <p><strong>Time:</strong> 11:40 AM</p>
-                                    <p><strong>Location:</strong> California, USA</p>
-
+                                <div className="mt-4 space-y-5 text-sm bg-neutral-800 p-5 rounded-lg">
+                                    {Object.keys(sortedMembers).sort().map((letter) => (
+                                        <div key={letter} className="space-y-4">
+                                            <h3 className="font-semibold text-xl text-purple-600 bg-purple-900 w-fit px-2 rounded-full opacity-60">{letter}</h3>
+                                            <div className="space-y-4 ml-3">
+                                                {sortedMembers[letter].map((member) => (
+                                                    <div key={member.name} className="flex space-x-3" >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-3 h-3 mt-2"
+                                                            checked={selectedMembers[member.name]}
+                                                            onChange={() => toggleMemberSelection(member.name)}
+                                                        />
+                                                        <div className="flex pace-x-2 flex-col">
+                                                            <p className="text-lg font-semibold">{member.name}</p>
+                                                            <p className="text-xs text-zinc-00">{member.position} - {member.department.name}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -77,22 +142,49 @@ const Groups = () => {
             </div>
             <div className="mt-14">
                 {groups.map((group) => (
-                    <div
-                        key={group.id}
-                        className="p-3 rounded-lg hover:bg-neutral-800 cursor-pointer mb-4"
-                    >
-                        <div className="flex items-center w-full space-x-3 justify-between">
-                            <div className="relative mr-3 flex space-x-5 items-center">
-                                <div className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg ">
-                                    {group.name.charAt(0)}
+                    group.conversationInfo?.type === 'department' ? (
+                        <div
+                            key={group._id}
+                            className="p-3 rounded-lg hover:bg-neutral-800 cursor-pointer mb-4"
+                        >
+                            <div className="flex items-center w-full space-x-3 justify-between">
+                                <div className="relative mr-3 flex space-x-5 items-center">
+                                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg ">
+                                        {group.conversationInfo.name.charAt(0)}
+                                    </div>
+                                    {group.conversationInfo.type === 'department' ? (
+                                        <p className="text-base font-semibold">#{group.conversationInfo.name}</p>
+                                    ) : (
+                                        <p className="text-base font-semibold">{group.conversationInfo.name}</p>
+                                    )}
                                 </div>
-                                <p className="text-base font-semibold">#{group.name}</p>
+                                <p className="bg-red-800 bg-opacity-35 rounded-full px-2 text-pink-500 text-xs font-semibold">
+                                    {group.unreadCount}
+                                </p>
                             </div>
-                            <p className="bg-red-800 bg-opacity-35 rounded-full px-2 text-pink-500 text-xs font-semibold">
-                                23+
-                            </p>
                         </div>
-                    </div>
+                    ) : group.conversationInfo?.type === 'group' && (
+                        <div
+                            key={group._id}
+                            className="p-3 rounded-lg hover:bg-neutral-800 cursor-pointer mb-4"
+                        >
+                            <div className="flex items-center w-full space-x-3 justify-between">
+                                <div className="relative mr-3 flex space-x-5 items-center">
+                                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg ">
+                                        {group.conversationInfo.name.charAt(0)}
+                                    </div>
+                                    {group.conversationInfo.type === 'department' ? (
+                                        <p className="text-base font-semibold">#{group.conversationInfo.name}</p>
+                                    ) : (
+                                        <p className="text-base font-semibold">{group.conversationInfo.name}</p>
+                                    )}
+                                </div>
+                                <p className="bg-red-800 bg-opacity-35 rounded-full px-2 text-pink-500 text-xs font-semibold">
+                                    {group.unreadCount}
+                                </p>
+                            </div>
+                        </div>
+                    )
                 ))}
             </div>
         </div>

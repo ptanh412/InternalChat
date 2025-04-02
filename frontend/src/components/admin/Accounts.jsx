@@ -169,16 +169,7 @@ const Accounts = () => {
         : accounts;
     const startIndex = (currentPage - 1) * usersPerPage;
     const endIndex = Math.min(startIndex + usersPerPage, totalUsers);
-
-    useEffect(() => {
-        console.log("Raw accounts:", accounts);
-        console.log("Filtered accounts:", filteredAccounts);
-        console.log("Search term:", searchTerm);
-        console.log("Position filter:", positionFilter);
-        console.log("Department filter:", departmentFilter);
-        console.log("Status filter:", statusFilter);
-    }, [accounts, filteredAccounts, searchTerm, positionFilter, departmentFilter, statusFilter]);
-
+    
     return (
         <div className='p-6'>
             <div className='flex justify-between items-center mb-10'>
