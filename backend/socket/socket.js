@@ -7,17 +7,16 @@ const ConversationMember = require('../models/ConversationMember');
 const Department = require('../models/Department');
 const Conversations = require('../models/Conversations');
 const Messages = require('../models/Messages');
-const File = require('../models/File');
 const messageService = require('../services/messageService');
+const conversationService = require('../services/conversationService');
+const authService = require('../services/authService');
 
 const setUpSocket = (server) => {
 	const io = new Server(server, {
 		cors: {
 			origin: process.env.CLIENT_URL,
-			methods: ['GET', 'POST']
-		},
-		pingTimeout: 60000,
-		pingInterval: 25000
+			methods: ['GET', 'POST', 'PUT', 'DELETE']
+		}
 	});
 
 	const userSocketMap = new Map();
@@ -47,6 +46,35 @@ const setUpSocket = (server) => {
 		io.emit('user:status', {
 			userId: socket.userId,
 			status: 'online'
+		})
+
+		socket.on('user:update', async (data) => {
+			console.log('User update event received:', data);
+			try {
+				const { userId, updateData } = data;
+				const allowedFields = ['name', 'avatar', 'phoneNumber', 'email'];
+				const filteredUpdateData = {};
+
+				allowedFields.forEach(field => {
+					if (updateData[field] !== undefined) {
+						filteredUpdateData[field] = updateData[field];
+					}
+				});
+
+				// const updatedUser = await authService.updateUser(userId, filteredUpdateData);
+
+				io.emit('user:updated', {
+					userId,
+					updateFields: filteredUpdateData
+				});
+
+				socket.emit('user:updated', {
+					userId,
+					updateFields: filteredUpdateData
+				})
+			} catch (error) {
+				console.error('Error updating user', error);
+			}
 		})
 
 		socket.emit('notification:count', { count: unreadCount });
@@ -126,15 +154,29 @@ const setUpSocket = (server) => {
 							path: 'department',
 							select: 'name'
 						}
+					}).lean().exec();
+					const enrichedMembers = members.map(member => {
+						// Tạo đối tượng user từ memberId và bổ sung thêm role và permissions
+						const memberData = {
+							...member.memberId,  // Giữ nguyên thông tin user (name, avatar, position, status, department)
+							role: member.role,
+							permissions: member.permissions
+						};
+						return memberData;
 					});
 
 					if (existingConversation.lastMessage) {
 						// Ensure lastMessage.sender is populated with user info
 						const lastMessage = await Messages.findById(existingConversation.lastMessage._id)
-							.populate({
+							.populate([{
 								path: 'sender',
 								select: 'name avatar'
-							})
+							},
+							{
+								path: 'attachments',
+								select: 'fileName fileUrl fileType mimeType fileSize',
+							}
+							])
 							.lean()
 							.exec();
 
@@ -147,7 +189,7 @@ const setUpSocket = (server) => {
 
 					const populatedConversation = {
 						...conversationData,
-						members: members.map(member => member.memberId)
+						members: enrichedMembers
 					};
 					console.log('Existing conversation:', populatedConversation);
 					socket.emit('chat:loaded', {
@@ -218,11 +260,21 @@ const setUpSocket = (server) => {
 							path: 'department',
 							select: 'name'
 						}
+					}).lean().exec();
+
+					const enrichedMembers = members.map(member => {
+						// Tạo đối tượng user từ memberId và bổ sung thêm role và permissions
+						const memberData = {
+							...member.memberId,  // Giữ nguyên thông tin user (name, avatar, position, status, department)
+							role: member.role,
+							permissions: member.permissions
+						};
+						return memberData;
 					});
 
 					const populatedConversation = {
 						...conversation.toObject(),
-						members: members.map(member => member.memberId)
+						members: enrichedMembers
 					}
 
 					socket.emit('chat:loaded', {
@@ -238,10 +290,810 @@ const setUpSocket = (server) => {
 			}
 		})
 
+		socket.on('create:conversation-group', async (data) => {
+			const { conversationName, members, type, creator } = data;
+			try {
+				const creatorObj = { _id: creator };
+
+				const groupData = {
+					type: type || 'group',
+					name: conversationName,
+					members: members,
+				}
+				const createdConversation = await conversationService.createConvGroup(groupData, creatorObj);
+
+				const formattedConv = {
+					_id: createdConversation._id.toString(),
+					conversationInfo: {
+						_id: createdConversation._id.toString(),
+						type: createdConversation.type,
+						name: conversationName,
+						members: members,
+						lastMessage: createdConversation.lastMessage || {
+							content: `Welcome to ${conversationName}`,
+							type: 'system',
+							sentAt: new Date(),
+						},
+					},
+					newConversation: {
+						...createdConversation.toObject(),
+						members,
+						creator: creator
+					},
+					creatorId: creator,
+				}
+				for (const member of members) {
+					if (member.toString() !== creator.toString()) {
+						const memberSocketId = userSocketMap.get(member.toString());
+						if (memberSocketId) {
+							io.to(memberSocketId).emit('group:created', {
+								...formattedConv,
+								unreadCount: 1
+							});
+						}
+					}
+				}
+
+				// if (!members.includes(creator)) {
+				const creatorSocketId = userSocketMap.get(creator.toString());
+				if (creatorSocketId) {
+					io.to(creatorSocketId).emit('group:created', {
+						...formattedConv,
+						unreadCount: 0
+					});
+				}
+				// }
+			} catch (error) {
+				console.error('Error creating group conversation', error);
+			}
+		});
+
+		socket.on('group:update-info', async (data) => {
+			console.log('Received update info group:', data);
+			const { conversationId, updateData, updatedBy, conversationType } = data;
+			const updatedConv = await conversationService.updateConvDepartment(conversationId, updateData, updatedBy, conversationType);
+
+			const members = await ConversationMember.find({
+				conversationId: updatedConv._id
+			})
+				.populate({
+					path: 'memberId',
+					select: 'name avatar status department position',
+					populate: {
+						path: 'department',
+						select: 'name' // Assuming your Department model has a 'name' field
+					}
+				})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions
+				};
+				return memberData;
+			})
+
+			const systemMessage = await Messages.create({
+				conversationId: updatedConv._id,
+				sender: updatedBy._id,
+				type: 'system',
+				content: updateData.name ? `${updatedBy.name} changed group name to ${updateData.name}` : `${updatedBy.name} changed group avatar`,
+				metadata: {
+					action: 'group_info_updated',
+					updatedBy: {
+						_id: updatedBy._id,
+						name: updatedBy.name
+					},
+					groupInfo: updateData
+				}
+			});
+			await Conversations.findByIdAndUpdate(conversationId, {
+				lastMessage: systemMessage._id
+			});
+
+			const populatedMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean().exec();
+
+			const convIdString = conversationId.toString();
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				if (memberIdString === updatedBy._id.toString()) continue;
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: updatedConv._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+					if (memberSocketId) {
+						io.to(memberSocketId).emit('chat:update', {
+							type: 'update_group_info',
+							data: {
+								conversationId,
+								name: updateData.name,
+								avatarGroup: updateData.avatarGroup,
+								members: enrichedMembers,
+								updatedBy,
+								conversationType,
+								lastMessage: populatedMessage,
+								unreadCount: 1,
+								isIncrement: true
+							}
+						});
+					}
+				}
+			};
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_group_info',
+				data: {
+					conversationId,
+					name: updateData.name,
+					avatarGroup: updateData.avatarGroup,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+			socket.emit('chat:update', {
+				type: 'update_group_info',
+				data: {
+					conversationId,
+					name: updateData.name,
+					avatarGroup: updateData.avatarGroup,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			})
+		})
+
+		socket.on('group:add-member', async (data) => {
+			console.log('Received add member event:', data);
+			const { conversationId, conversationType, updatedBy, newMembers } = data;
+
+			const updateData = {
+				addMembers: newMembers
+			}
+
+			const updatedConv = await conversationService.updateConvDepartment(conversationId, updateData, updatedBy, conversationType);
+
+			const members = await ConversationMember.find({
+				conversationId: updatedConv._id
+			})
+				.populate({
+					path: 'memberId',
+					select: 'name avatar status department position joinedAt',
+					populate: {
+						path: 'department',
+						select: 'name' // Assuming your Department model has a 'name' field
+					}
+				})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions,
+					joinedAt: member.joinedAt
+				};
+				return memberData;
+			})
+
+			const addMembers = await Users.find({
+				_id: { $in: newMembers }
+			}).select('name avatar status department position').populate('department', 'name').lean().exec();
+
+			const systemMessage = await Messages.create({
+				conversationId: updatedConv._id,
+				sender: updatedBy._id,
+				type: 'system',
+				content: `${updatedBy.name} added members to the group`,
+				metadata: {
+					action: 'member_added',
+					addedBy: {
+						_id: updatedBy._id,
+						name: updatedBy.name
+					},
+					addedMembers: addMembers.map(member => ({
+						_id: member._id,
+						name: member.name,
+						avatar: member.avatar,
+						department: member.department.name,
+						position: member.position
+					}))
+				}
+			})
+			await Conversations.findByIdAndUpdate(conversationId, {
+				lastMessage: systemMessage._id
+			});
+			const populatedMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean().exec();
+
+			const fullConv = await Conversations.findById(conversationId)
+				.populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status')
+				.populate('creator', 'name avatar')
+				.lean().exec();
+
+			const convIdString = conversationId.toString();
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				if (memberIdString === updatedBy._id.toString()) continue;
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: updatedConv._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+					if (memberSocketId) {
+						io.to(memberSocketId).emit('chat:update', {
+							type: 'update_members',
+							data: {
+								conversationId,
+								members: enrichedMembers,
+								updatedBy,
+								conversationType,
+								lastMessage: populatedMessage,
+								unreadCount: 1,
+								isIncrement: true
+							}
+						});
+					}
+				}
+			}
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			socket.emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+			for (const newMemberId of newMembers) {
+				const newMemberSocketId = userSocketMap.get(newMemberId.toString());
+
+				if (newMemberSocketId) {
+					io.to(newMemberSocketId).emit('group:added', {
+						conversationId,
+						conversation: {
+							conversationInfo: {
+								...fullConv,
+								lastMessage: populatedMessage
+							},
+							members: enrichedMembers,
+							unreadCount: 1,
+							isIncrement: true
+						}
+					});
+				}
+			}
+		});
+
+		socket.on('group:remove-member', async (data) => {
+			const { conversationId, conversationType, updatedBy, membersToRemove } = data;
+			const updateData = {
+				removeMembers: membersToRemove
+			}
+
+			const updatedConv = await conversationService.updateConvDepartment(conversationId, updateData, updatedBy, conversationType);
+
+			const members = await ConversationMember.find({
+				conversationId: updatedConv._id
+			})
+				.populate({
+					path: 'memberId',
+					select: 'name avatar status department position',
+					populate: {
+						path: 'department',
+						select: 'name'
+					}
+				})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions
+				};
+				return memberData;
+			})
+			const removedMembers = await Users.find({
+				_id: { $in: membersToRemove }
+			}).select('name avatar status department position').populate('department', 'name').lean().exec();
+
+			const systemMessage = await Messages.create({
+				conversationId: updatedConv._id,
+				sender: updatedBy._id,
+				type: 'system',
+				content: `${updatedBy.name} removed members from the group`,
+				metadata: {
+					action: 'member_removed',
+					removedBy: {
+						_id: updatedBy._id,
+						name: updatedBy.name
+					},
+					removedMembers: removedMembers.map(member => ({
+						_id: member._id,
+						name: member.name,
+						avatar: member.avatar,
+						department: member.department.name,
+						position: member.position
+					}))
+				}
+			});
+
+			await Conversations.findByIdAndUpdate(conversationId, {
+				lastMessage: systemMessage._id
+			});
+
+			const populatedMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean().exec();
+
+			const convIdString = conversationId.toString();
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				if (memberIdString === updatedBy._id.toString()) continue;
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: updatedConv._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+					if (memberSocketId) {
+						io.to(memberSocketId).emit('chat:update', {
+							type: 'update_members',
+							data: {
+								conversationId,
+								members: enrichedMembers,
+								updatedBy,
+								conversationType,
+								lastMessage: populatedMessage,
+								unreadCount: 1,
+								isIncrement: true
+							}
+						});
+					}
+				}
+			}
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			socket.emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					updatedBy,
+					conversationType,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			for (const removedMemberId of membersToRemove) {
+				const removedSocketId = userSocketMap.get(removedMemberId.toString());
+
+				if (removedMemberId) {
+					io.to(removedSocketId).emit('group:removed', {
+						conversationId,
+						removedBy: {
+							_id: updatedBy._id,
+							name: updatedBy.name
+						}
+					})
+				}
+			}
+		});
+
+		socket.on('group:leave', async (data) => {
+			console.log('Group leave event received:', data);
+			const { conversationId, user } = data;
+			try {
+				const conversation = await Conversations.findById(conversationId).lean().exec();
+
+				if (!conversation) {
+					throw new Error('Conversation not found');
+				};
+
+				const member = await ConversationMember.findOne({
+					conversationId,
+					memberId: user._id
+				}).lean().exec();
+
+				if (!member) {
+					throw new Error('You are not a member of this conversation');
+				}
+
+				await ConversationMember.deleteOne({
+					conversationId,
+					memberId: user._id
+				});
+
+				const systemMessage = await Messages.create({
+					conversationId,
+					sender: user._id,
+					type: 'system',
+					content: `${user.name} left the group`,
+					metadata: {
+						action: 'member_left',
+						leftBy: {
+							_id: user._id,
+							name: user.name
+						}
+					}
+				})
+
+				await Conversations.findByIdAndUpdate(conversationId, {
+					lastMessage: systemMessage._id
+				});
+				const populatedMessage = await Messages.findById(systemMessage._id)
+					.populate('sender', 'name avatar status')
+					.lean().exec();
+
+				const members = await ConversationMember.find({
+					conversationId
+				})
+					.populate({
+						path: 'memberId',
+						select: 'name avatar status department position',
+						populate: {
+							path: 'department',
+							select: 'name'
+						}
+					})
+					.lean()
+					.exec();
+
+				const enrichedMembers = members.map(member => {
+					const memberData = {
+						...member.memberId,
+						role: member.role,
+						permissions: member.permissions
+					};
+					return memberData;
+				})
+
+				const convIdString = conversationId.toString();
+
+				socket.to(conversationId).emit('chat:update', {
+					type: 'update_members',
+					data: {
+						conversationId,
+						members: enrichedMembers,
+						leftUser: {
+							_id: user._id,
+							name: user.name
+						},
+						lastMessage: populatedMessage,
+						unreadCount: 0
+					}
+				})
+
+				for (const member of members) {
+					const memberIdString = member.memberId._id.toString();
+					const memberSocketId = userSocketMap.get(memberIdString);
+
+					const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+					if (!isInRoom && memberSocketId) {
+						await ConversationMember.findOneAndUpdate(
+							{
+								conversationId: conversationId._id,
+								memberId: member.memberId._id
+							},
+							{ $inc: { unreadCount: 1 } }
+						)
+
+						io.to(memberSocketId).emit('chat:update', {
+							type: 'update_members',
+							data: {
+								conversationId,
+								members: enrichedMembers,
+								leftUser: {
+									_id: user._id,
+									name: user.name
+								},
+								lastMessage: populatedMessage,
+								unreadCount: 1,
+								isIncrement: true
+							}
+						});
+					}
+				}
+
+				const userSocketId = userSocketMap.get(user._id.toString());
+
+				if (userSocketId) {
+					io.to(userSocketId).emit('group:left', {
+						conversationId
+					});
+				}
+
+				socket.emit('group:leave-success', {
+					conversationId,
+					message: 'You have left the group'
+				})
+			} catch (error) {
+				console.error('Error leaving group:', error);
+			}
+		})
+
+		socket.on('transfer:admin', async (data) => {
+			const { conversationId, currentUserId, newAdminId } = data;
+
+			const updatedUser = await conversationService.transferAdminRole(conversationId, currentUserId._id, newAdminId._id);
+
+			const members = await ConversationMember.find({
+				conversationId,
+			}).populate({
+				path: 'memberId',
+				select: 'name avatar status department position',
+				populate: {
+					path: 'department',
+					select: 'name'
+				}
+			})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions
+				};
+				return memberData;
+			});
+
+
+			const systemMessage = await Messages.create({
+				conversationId,
+				sender: currentUserId,
+				type: 'system',
+				content: `${currentUserId.name} transferred admin role to ${newAdminId.name}`,
+				metadata: {
+					action: 'admin_transferred',
+					transferredBy: {
+						_id: currentUserId._id,
+						name: currentUserId.name
+					},
+					newAdmin: {
+						_id: newAdminId._id,
+						name: newAdminId.name
+					}
+				}
+			});
+
+			await Conversations.findByIdAndUpdate(conversationId, {
+				lastMessage: systemMessage._id
+			})
+
+			const populatedMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean().exec();
+
+			const convIdString = conversationId.toString();
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newAdmin: updatedUser,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			socket.emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newAdmin: updatedUser,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom && memberSocketId) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: conversationId._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+
+					io.to(memberSocketId).emit('chat:update', {
+						type: 'update_members',
+						data: {
+							conversationId,
+							members: enrichedMembers,
+							newAdmin: updatedUser,
+							lastMessage: populatedMessage,
+							unreadCount: 1,
+							isIncrement: true
+						}
+					});
+				}
+			}
+		})
+		socket.on('transfer:deputy', async (data) => {
+			const { conversationId, currentUserId, newDeputyId } = data;
+
+			const updatedUser = await conversationService.assignDeputyAdmin(conversationId, currentUserId._id, newDeputyId._id);
+
+			const members = await ConversationMember.find({
+				conversationId,
+			}).populate({
+				path: 'memberId',
+				select: 'name avatar status department position',
+				populate: {
+					path: 'department',
+					select: 'name'
+				}
+			})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions
+				};
+				return memberData;
+			});
+
+
+			const systemMessage = await Messages.create({
+				conversationId,
+				sender: currentUserId,
+				type: 'system',
+				content: `${currentUserId.name} transferred deputy admin role to ${newDeputyId.name}`,
+				metadata: {
+					action: 'deputy_transferred',
+					transferredBy: {
+						_id: currentUserId._id,
+						name: currentUserId.name
+					},
+					newDeputy: {
+						_id: newDeputyId._id,
+						name: newDeputyId.name
+					}
+				}
+			});
+
+			await Conversations.findByIdAndUpdate(conversationId, {
+				lastMessage: systemMessage._id
+			})
+
+			const populatedMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean().exec();
+
+			const convIdString = conversationId.toString();
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newDeputy: updatedUser,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			socket.emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newDeputy: updatedUser,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				}
+			});
+
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom && memberSocketId) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: conversationId._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+
+					io.to(memberSocketId).emit('chat:update', {
+						type: 'update_members',
+						data: {
+							conversationId,
+							members: enrichedMembers,
+							newDeputy: updatedUser,
+							lastMessage: populatedMessage,
+							unreadCount: 1,
+							isIncrement: true
+						}
+					});
+				}
+			}
+		})
+
 		socket.on('conversation:enter', async (data) => {
 			try {
 				const { conversationId } = data;
-				console.log('Conversation received:', conversationId);
+				// console.log('Conversation received:', conversationId);
+
+				socket.join(conversationId.toString());
 
 				const userIdString = socket.userId.toString();
 
@@ -250,27 +1102,17 @@ const setUpSocket = (server) => {
 				}
 				userActiveConversations.get(userIdString).add(conversationId.toString());
 
-				const members = await ConversationMember.find({ conversationId });
+				socket.to(conversationId.toString()).emit('user:entered', {
+					conversationId,
+					userId: socket.userId
+				});
 
-				members.forEach(member => {
-					const memberSocketId = userSocketMap.get(member.memberId.toString());
-					if (memberSocketId && member.memberId.toString() !== socket.userId.toString()) {
-						io.to(memberSocketId).emit('user:entered', {
-							conversationId,
-							userId: socket.userId
-						});
-					}
-				})
 				const readResult = await markMessageAsRead(conversationId, socket.userId);
-				members.forEach(member => {
-					const memberSocketId = userSocketMap.get(member.memberId.toString());
-					if (memberSocketId && member.memberId.toString() !== socket.userId.toString()) {
-						io.to(memberSocketId).emit('conversation:read', {
-							conversationId,
-							readBy: readResult.readBy
-						});
-					}
-				})
+
+				socket.to(conversationId.toString()).emit('conversation:read', {
+					conversationId,
+					readBy: readResult.readBy
+				});
 				console.log('User entered conversation:', {
 					userId: userIdString,
 					conversationId,
@@ -283,12 +1125,18 @@ const setUpSocket = (server) => {
 
 		socket.on('conversation:leave', async (data) => {
 			const { conversationId } = data;
+			console.log('Conversation leave event received:', conversationId);
+			socket.leave(conversationId.toString());
 			const userIdString = socket.userId.toString();
 
 			if (userActiveConversations.has(userIdString)) {
 				userActiveConversations.get(userIdString).delete(conversationId.toString());
 			}
 
+			socket.to(conversationId.toString()).emit('user:left', {
+				conversationId,
+				userId: socket.userId
+			});
 			console.log('User left conversation:', {
 				userId: userIdString,
 				conversationId,
@@ -360,7 +1208,6 @@ const setUpSocket = (server) => {
 				if (!isMember) {
 					throw new Error('You are not a member of this conversation');
 				}
-
 				const messageData = {
 					conversationId,
 					sender: socket.userId,
@@ -374,6 +1221,10 @@ const setUpSocket = (server) => {
 				const fullyPopulatedMessage = await Messages.findById(populatedMessage._id)
 					.populate('sender', 'name avatar status')
 					.populate('replyTo', 'content sender')
+					.populate({
+						path: 'attachments',
+						select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+					})
 					.lean();
 
 				const members = await ConversationMember.find({
@@ -381,51 +1232,54 @@ const setUpSocket = (server) => {
 				});
 
 				const activeRecipients = [];
-				await Conversations.findByIdAndUpdate(
+				const updatedConv = await Conversations.findByIdAndUpdate(
 					conversationId,
-					{lastMessage: populatedMessage._id},
-					{new: true}
-				)
+					{ lastMessage: populatedMessage._id },
+					{ new: true }
+				).populate({
+					path: 'lastMessage',
+					select: 'content type createdAt attachments sentAt sender isRecalled isEdited isPinned reactions status replyTo recallType',
+					populate: [{
+						path: 'sender',
+						select: 'name avatar status',
+					},
+					{
+						path: 'attachments',
+						select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+					}
+					]
+				}).lean();
+
 				for (const member of members) {
 					const memberId = member.memberId.toString();
-					if (memberId  === socket.userId.toString()) continue;
+					if (memberId === socket.userId.toString()) continue;
 					const isActive = isUserActiveInConversation(memberId, conversationId.toString());
 					if (isActive) {
 						activeRecipients.push(memberId);
 					}
 					await sendMessageToRecipient(populatedMessage, memberId);
-					// if (member.memberId.toString() !== socket.userId.toString()) {
-					// 	const isActive = isUserActiveInConversation(
-					// 		member.memberId.toString() || member.memberId._id.toString(),
-					// 		conversationId.toString()
-					// 	)
-					// 	if (isActive) {
-					// 		activeRecipients.push(member.memberId.toString())
-					// 	}
-					// 	await sendMessageToRecipient(populatedMessage, member.memberId);
-					// }
 				}
-				console.log('Mesage sent:', fullyPopulatedMessage.conversationId);
 				const messageStatus = activeRecipients.length > 0 ? 'read' : 'sent';
-				socket.emit('message:new', {
-					conversationId: fullyPopulatedMessage.conversationId,
+
+				io.to(conversationId.toString()).emit('message:new', {
+					conversationId: fullyPopulatedMessage.conversationId.toString(),
 					message: {
 						...fullyPopulatedMessage,
 						status: messageStatus
-					}
+					},
+					lastMessage: updatedConv.lastMessage,
+					unreadCount: 0
 				})
-				const senderSocketId = userSocketMap.get(socket.userId.toString());
-				if (senderSocketId) {
-					socket.emit('message:sent', {
-						success: true,
-						message: {
-							...fullyPopulatedMessage,
-							status: messageStatus
-						},
-						tempId,
-						conversationId: conversationId
-					});
-				}
+
+				socket.emit('message:sent', {
+					success: true,
+					message: {
+						...fullyPopulatedMessage,
+						status: messageStatus
+					},
+					tempId,
+					conversationId: conversationId
+				});
 			} catch (error) {
 				console.error('Error sending message', error);
 				socket.emit('message:error', {
@@ -434,45 +1288,6 @@ const setUpSocket = (server) => {
 				})
 			}
 		});
-
-		// if (newConversation) {
-		// 	const tempChatInfo = temporaryChats.get(originalTempId);
-		// 	if (tempChatInfo) {
-		// 		const recipientSocketId = userSocketMap.get(tempChatInfo.contactId.toString());
-
-		// 		if (recipientSocketId) {
-		// 			const fullConv = await Conversations.findById(data.conversationId).lean();
-		// 			const members = await ConversationMember.find({
-		// 				conversationId: data.conversationId
-		// 			}).populate('memberId', 'name avatar status');
-
-		// 			io.to(recipientSocketId).emit('chat:new', {
-		// 				conversation: {
-		// 					...fullConv,
-		// 					members: members.map(member => member.memberId)
-		// 				},
-		// 				message: populatedMessage
-		// 			})
-		// 		}
-		// 	}
-		// } else {
-		// 	const fullConv = await Conversations.findById(data.conversationId).lean();
-
-		// 	const populatedConversation = {
-		// 		...fullConv,
-		// 		members: conversationMembers.map(member => member.memberId)
-		// 	}
-
-		// 	for (const member of members) {
-		// 		const recipientSocketId = userSocketMap.get(member.memberId.toString());
-		// 		if (recipientSocketId) {
-		// 			io.to(recipientSocketId).emit('chat:new', {
-		// 				conversation: populatedConversation,
-		// 				message: populatedMessage
-		// 			})
-		// 		}
-		// 	}
-		// }
 		const cleanupTemporaryChats = () => {
 			const now = new Date();
 			for (const [key, value] of temporaryChats.entries()) {
@@ -552,13 +1367,6 @@ const setUpSocket = (server) => {
 						await sendMessageToRecipient(updatedMessage, memberUserId);
 					}
 				}
-				// socket.emit('message:new', {
-				// 	conversationId: populatedMessage.conversationId.toString(),
-				// 	message: {
-				// 		...populatedMessage,
-				// 		status: activeRecipients.length > 0 ? 'read' : 'sent'
-				// 	}
-				// });
 				socket.emit('message:reply-success', {
 					success: true,
 					message: {
@@ -589,17 +1397,71 @@ const setUpSocket = (server) => {
 				})
 			}
 		})
+
 		socket.on('recall:message', async (data) => {
+			// console.log('Received recall:message event:', data);
 			try {
-				const { messageId, recallType } = data;
+				const { messageId, recallType, conversationId } = data;
 				const recalledMessage = await messageService.recallMessage({ messageId, userId: socket.userId, recallType });
+
+				const updatedConversation = await Conversations.findByIdAndUpdate(
+					recalledMessage.conversationId,
+					{ lastMessage: recalledMessage._id },
+					{ new: true }
+				).populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status');
+
+
+				const actorSocketId = socket.userId.toString();
+
+				const actor = await Users.findById(actorSocketId).select('name avatar status department');
+
+				io.to(conversationId).emit('message:recall-success', {
+					success: true,
+					message: recalledMessage.messageId,
+					conversationId: recalledMessage.conversationId,
+					isRecalled: true,
+					recallType: recalledMessage.recallType,
+					actor,
+					lastMessage: updatedConversation.lastMessage
+				});
 
 				socket.emit('message:recall-success', {
 					success: true,
 					message: recalledMessage.messageId,
 					conversationId: recalledMessage.conversationId,
-					recallType: recalledMessage.recallType
+					isRecalled: true,
+					recallType: recalledMessage.recallType,
+					actor,
+					lastMessage: updatedConversation.lastMessage
 				});
+				const members = await ConversationMember.find({
+					conversationId: recalledMessage.conversationId
+				});
+
+				for (const member of members) {
+					const recipientSocketId = userSocketMap.get(member.memberId.toString());
+					if (recipientSocketId) {
+						io.to(recipientSocketId).emit('message:recall-success', {
+							success: true,
+							message: recalledMessage.messageId,
+							conversationId: recalledMessage.conversationId,
+							isRecalled: true,
+							recallType: recalledMessage.recallType,
+							actor,
+							lastMessage: updatedConversation.lastMessage
+						});
+
+						io.to(conversationId).emit('chat:update', {
+							type: 'recall_message',
+							data: {
+								messageId: recalledMessage.messageId,
+								recallType: recalledMessage.recallType,
+								actor,
+								conversationId: recalledMessage.conversationId
+							}
+						});
+					}
+				}
 			} catch (error) {
 				console.error('Error recalling message', error);
 				socket.emit('message:error', {
@@ -610,11 +1472,11 @@ const setUpSocket = (server) => {
 		})
 
 		socket.on('message:reaction', async (data) => {
-			console.log('Received message:reaction event:', data);
+			// console.log('Received message:reaction event:', data);
 			try {
 				const { messageId, emoji } = data;
 				const updatedMessage = await messageService.reactToMessage({ messageId, userId: socket.userId, emoji });
-				console.log('Updated message after reaction:', updatedMessage);
+				// console.log('Updated message after reaction:', updatedMessage);
 				socket.emit('message:react-success', {
 					success: true,
 					messageId: updatedMessage._id,
@@ -832,6 +1694,14 @@ const setUpSocket = (server) => {
 		}
 	}
 
+	const verifyRecipientConnection = (recipientId) => {
+		const socketId = userSocketMap.get(recipientId.toString());
+		if (!socketId) return false;
+
+		const socket = io.sockets.sockets.get(socketId);
+		return socket && socket.connected;
+	};
+
 	const sendMessageToRecipient = async (message, recipientId) => {
 		try {
 			let recipientIdString;
@@ -845,10 +1715,10 @@ const setUpSocket = (server) => {
 			const recipientSocketId = userSocketMap.get(recipientIdString);
 			console.log(`Attemping to send message to recipient ${recipientId}:, socketId: ${recipientSocketId}`);
 
-			if (!recipientSocketId) {
-				console.error(`Recipient ${recipientId} is not connected`);
+			if (!recipientSocketId || !verifyRecipientConnection(recipientIdString)) {
+				console.error(`Recipient ${recipientId} is not connected or socket invalid`);
 				return false;
-			};
+			}
 
 			try {
 				const [
@@ -858,24 +1728,35 @@ const setUpSocket = (server) => {
 					userMember
 				] = await Promise.all([
 					Messages.findById(message._id)
+						.select('content type createdAt attachments sentAt sender isRecalled isEdited status replyTo recallType reactions')
 						.populate('sender', 'name avatar status')
 						.populate({
 							path: 'replyTo',
 							select: 'content sender',
-							populate: {
+							populate: [{
 								path: 'sender',
 								select: 'name avatar status'
-							}
+							},
+							{
+								path: 'attachments',
+								select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+							}]
 						})
 						.lean(),
 					Conversations.findById(message.conversationId)
 						.populate({
 							path: 'lastMessage',
 							select: 'content type createdAt attachments sentAt sender isRecalled isEdited',
-							populate: {
-								path: 'sender',
-								select: 'name avatar status',
-							}
+							populate: [
+								{
+									path: 'sender',
+									select: 'name avatar status',
+								},
+								{
+									path: 'attachments',
+									select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+								}
+							]
 						})
 						.populate({
 							path: 'creator',
@@ -898,11 +1779,6 @@ const setUpSocket = (server) => {
 
 				const isSenderActive = isUserActiveInConversation(message.sender._id.toString(), message.conversationId.toString());
 				const isRecipientActive = isUserActiveInConversation(recipientId.toString(), message.conversationId.toString());
-
-				console.log('Message sender active:', message.sender._id.toString());
-				console.log('Conversation ID:', message.conversationId.toString());
-				console.log('Message recipient active:', recipientId.toString());
-				console.log('Sender active:', isSenderActive, 'Recipient active:', isRecipientActive);
 
 				const recipientMember = await ConversationMember.findOneAndUpdate(
 					{
@@ -930,7 +1806,6 @@ const setUpSocket = (server) => {
 
 				if (isRecipientActive) {
 					const readResult = await markMessageAsRead(message.conversationId, recipientId);
-					console.log('Mesaages marked as read for recipient:', readResult);
 					messageStatus = 'read';
 					updateUnreadCount = false;
 					currentUnreadCount = 0;
@@ -943,46 +1818,45 @@ const setUpSocket = (server) => {
 				}
 				const conversationIdString = message.conversationId.toString();
 				const updatedConversation = await Conversations.findById(message.conversationId)
-				.populate({
-					path: 'lastMessage',
-					select: 'content type createdAt attachments sentAt sender isRecalled isEdited',
-					populate: {
-						path: 'sender',
-						select: 'name avatar status',
-					}
-				}).lean();
+					.populate({
+						path: 'lastMessage',
+						select: 'content type createdAt attachments sentAt sender isRecalled isEdited isPinned reactions status replyTo recallType',
+						populate: [{
+							path: 'sender',
+							select: 'name avatar status',
+						}, {
+							path: 'attachments',
+							select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+						}]
+					}).lean();
+
 				const fullMessagePayload = {
 					conversationId: conversationIdString,
 					message: populatedMessage,
-					conversation: {
-						...updatedConversation,
-						members: members,
-						lastMessage: populatedMessage
-					},
-					unreadCount: currentUnreadCount
+					unreadCount: currentUnreadCount,
+					lastMessage: updatedConversation.lastMessage
 				};
-				console.log('Emiiting message:new to', recipientSocketId, fullMessagePayload);
-				io.to(recipientSocketId).emit('message:new', fullMessagePayload);
 
+				if (recipientSocketId) {
+					console.log(`Emitting message:new to socket ${recipientSocketId} for conversation ${conversationIdString}`);
+
+					io.to(recipientSocketId).emit('message:new', fullMessagePayload);
+					io.to(conversationIdString).emit('chat:update', {
+						type: 'new_message',
+						data: fullMessagePayload
+					});
+					if (updateUnreadCount) {
+						io.to(recipientSocketId).emit('conversation:unread', {
+							conversationId: message.conversationId,
+							unreadCount: 1
+						});
+					} else {
+						io.to(recipientSocketId).emit('conversation:read', {
+							conversationId: message.conversationId
+						});
+					}
+				}
 				console.log('Emission completed for recipient');
-				if(isRecipientActive){
-					io.to(recipientSocketId).emit('conversation:update',{
-						conversationId: message.conversationId,
-						lastMessage: populatedMessage
-					})
-				}
-
-				if (updateUnreadCount) {
-					io.to(recipientSocketId).emit('conversation:unread', {
-						conversationId: message.conversationId,
-						unreadCount: 1
-					});
-				} else {
-					io.to(recipientSocketId).emit('conversation:read', {
-						conversationId: message.conversationId
-					});
-				}
-
 				return true;
 			} catch (error) {
 				console.error('Error sending message to recipient', error);
@@ -1038,16 +1912,15 @@ const setUpSocket = (server) => {
 
 				switch (action) {
 					case 'create_conversation':
-						content = `Welcom to ${data.conversationName}`;
+						content = `Welcome to ${data.conversationName}`;
 						break;
-
-					case 'update_name':
-						if (memberId.toString() === actorId.toString()) {
-							content = `You changed the conversation name to ${data.newName}`;
-						} else {
-							content = `${actor.memberId.name} changed the conversation name to ${data.newName}`;
-						}
-						break;
+					// case 'update_name':
+					// 	if (memberId.toString() === actorId.toString()) {
+					// 		content = `You changed the conversation name to ${data.newName}`;
+					// 	} else {
+					// 		content = `${actor.memberId.name} changed the conversation name to ${data.newName}`;
+					// 	}
+					// 	break;
 					case 'update_avatar':
 						if (memberId.toString() === actorId.toString()) {
 							content = `You changed the conversation avatar`;
@@ -1055,32 +1928,6 @@ const setUpSocket = (server) => {
 							content = `${actor.memberId.name} changed the conversation avatar`;
 						}
 						break;
-					case 'add_member':
-						if (data.addedMembers && data.addedMembers.length > 0) {
-							const memberNames = data.addedMembers.map(m => m.name).join(', ');
-
-							if (memberId === actorId.toString()) {
-								content = `You added ${memberNames} to the group`;
-							} else if (data.addedMemberIds && data.addedMemberIds.includes(memberId)) {
-								content = `You were added to the group by ${actor.memberId.name}`;
-							} else {
-								content = `${actor.memberId.name} added ${memberNames} to the group`;
-							}
-						}
-						break;
-					case 'remove_member':
-						if (data.removedMembers && data.removedMembers.length > 0) {
-							const memberNames = data.removedMembers.map(m => m.name).join(', ');
-							if (memberId === actorId.toString()) {
-								content = `You removed ${memberNames} from the group`;
-							} else if (data.removedMemberIds && data.removedMemberIds.includes(memberId)) {
-								content = `You were removed from the group by ${actor.memberId.name}`;
-							} else {
-								content = `${actor.memberId.name} removed ${memberNames} from the group`;
-							}
-						}
-						break;
-
 					case 'update_role':
 						if (memberId.toString() === actorId.toString()) {
 							if (data.newRole === 'admin') {
@@ -1096,39 +1943,6 @@ const setUpSocket = (server) => {
 							}
 						}
 						break;
-					case 'assign_deputy_admin':
-						if (data.deputyMember) {
-							if (memberId === actorId.toString()) {
-								content = `You have assigned ${data.deputyMember.name} as deputy admin`;
-							} else if (memberId === data.deputyMember.id) {
-								content = `${actor.memberId.name} assigned you as deputy admin`;
-							} else {
-								content = `${actor.memberId.name} assigned ${data.deputyMember.name} as deputy admin`;
-							}
-						}
-						break;
-					case 'transfer_admin':
-						if (data.newAdmin) {
-							if (memberId === actorId.toString()) {
-								content = `You have transferred admin to ${data.newAdmin.name}`;
-							} else if (memberId === data.newAdmin.id) {
-								content = `${actor.memberId.name} transferred admin to you`;
-							} else {
-								content = `${actor.memberId.name} transferred admin to ${data.newAdmin.name}`;
-							}
-						}
-						break;
-					case 'recall_message':
-						if (data.recallType === 'everyone') {
-							if (memberId.toString() === actorId.toString()) {
-								content = `You recalled a message for everyone`;
-							} else {
-								content = `${actor.memberId.name} recalled a message`;
-							}
-						} else if (data.recallType === 'self' && memberId.toString() === actorId.toString()) {
-							content = `You recalled a message`;
-						}
-						break;
 					default:
 						content = `Unknown action: ${action}`;
 						break;
@@ -1142,12 +1956,11 @@ const setUpSocket = (server) => {
 			}
 			console.log("Content groups: ", contentGroups);
 			for (const [content, recipientIds] of Object.entries(contentGroups)) {
-				const messageData = {
+				let messageData = {
 					conversationId,
 					sender: actorId,
 					content,
-					type: 'system',
-					status: 'sent',
+					type: 'text',
 					metaData: {
 						action,
 						personalizedForGroup: recipientIds,
@@ -1155,6 +1968,13 @@ const setUpSocket = (server) => {
 					},
 					readBy: []
 				};
+				if (action === 'recall_message') {
+					messageData.type = 'text';
+					messageData.metaData.personalizedForRecall = recipientIds;
+					delete messageData.metaData.personalizedForGroup;
+				} else {
+					messageData.type = 'system';
+				}
 
 				for (const recipientId of recipientIds) {
 
@@ -1219,7 +2039,7 @@ const setUpSocket = (server) => {
 					const sent = await sendMessageToRecipient(message, memberId);
 					if (sent) sentCount++;
 				}
-				console.log(`System message sent to ${sentCount}/${conversation.length} members`);
+				// console.log(`System message sent to ${sentCount}/${conversation.length} members`);
 			}
 		} catch {
 			console.error('Error sending system message', error);
@@ -1335,56 +2155,6 @@ const setUpSocket = (server) => {
 		}
 	}
 
-	const addMemberToConversation = async (conversationId, memberId) => {
-		try {
-			const memberSocketId = userSocketMap.get(memberId.toString());
-
-			if (memberSocketId) {
-				const socket = io.sockets.sockets.get(memberSocketId);
-				if (socket) {
-					socket.join(`conversation:${conversationId}`);
-
-					const conversation = await Conversations.findById(conversationId).lean().exec();
-					const members = await ConversationMember.find({
-						conversationId
-					}).populate('memberId', 'name avatar status').lean().exec();
-
-					socket.emit('conversation:added', {
-						conversation: {
-							...conversation,
-							members
-						}
-					});
-				}
-			}
-		} catch (error) {
-			console.error('Error adding member to conversation', error);
-		}
-	}
-
-	const removeMemberFromConversation = async (conversationId, memberIds) => {
-		try {
-			const memberIdArray = Array.isArray(memberIds) ? memberIds : [memberIds];
-
-			for (const memberId of memberIdArray) {
-				const memberSocketId = userSocketMap.get(memberId.toString());
-
-				if (memberSocketId) {
-					const socket = io.sockets.sockets.get(memberSocketId);
-					if (socket) {
-						socket.leave(`conversation:${conversationId}`);
-					}
-
-					io.to(memberSocketId).emit('conversation:removed', {
-						conversationId
-					});
-				}
-			}
-		} catch (error) {
-			console.error('Error removing member from conversation', error);
-		}
-	}
-
 	return {
 		io,
 		userSocketMap,
@@ -1394,8 +2164,6 @@ const setUpSocket = (server) => {
 		markMessageAsRead,
 		notifyDepartmentConversationCreated,
 		notifyDepartmentConversationUpdated,
-		addMemberToConversation,
-		removeMemberFromConversation,
 		notifyUserUpdate,
 		notifyUserCreated,
 		sendMessageToRecipient

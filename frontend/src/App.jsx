@@ -14,6 +14,11 @@ import EditAccount from './components/admin/EditAccount'
 import Permissions from './components/admin/Permissions'
 import Chat from './components/user/Chat'
 import UserLayout from './components/layout/UserLayout'
+import { ChatContextProvider } from './context/ChatContext'
+import Conversation from './components/admin/Conversation'
+import ConversationDetail from './components/admin/ConversationDetail'
+import Employee from './components/admin/Employee'
+import EditEmployee from './components/admin/EditEmployee'
 
 
 const App = () => {
@@ -23,9 +28,15 @@ const App = () => {
     { path: '/accounts', element: <Accounts /> },
     { path: '/accounts/add-account', element: <EditAccount /> },
     { path: '/accounts/edit-account/:id', element: <EditAccount /> },
+    { path: '/employees', element: <Employee /> },
+    { path: '/accounts/add-employee', element: <EditEmployee /> },
+    { path: '/accounts/edit-employee/:id', element: <EditEmployee /> },
     { path: '/roles', element: <Roles /> },
     { path: '/departments', element: <Department /> },
-    { path: '/permissions', element: <Permissions /> }
+    { path: '/permissions', element: <Permissions /> },
+    { path: '/conversation', element: <Conversation /> },
+    { path: '/conversation/department/:id', element: <ConversationDetail /> },
+    
   ];
 
   const userRoutes = [
@@ -49,9 +60,11 @@ const App = () => {
               ))}
               {userRoutes.map((route, index) => (
                 <Route key={index} path={route.path} element={
-                  <UserLayout>
-                    {route.element}
-                  </UserLayout>
+                  <ChatContextProvider>
+                    <UserLayout>
+                      {route.element}
+                    </UserLayout>
+                  </ChatContextProvider>
                 } />
               ))}
               <Route path='/' element={<Home />} />

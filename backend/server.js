@@ -12,6 +12,7 @@ const departmentRoutes = require('./routes/departmentRoute');
 const conversationRoutes = require('./routes/conversationRoute');
 const userSettingRoute = require('./routes/userSettingRoute');
 const messageRoute = require('./routes/messageRoute');
+const fileRoute = require('./routes/fileRoute');
 const server = http.createServer(app);
 const socketService = require('./services/socketService');
 
@@ -30,6 +31,7 @@ app.use('/api/department', departmentRoutes);
 app.use('/api/conversation', conversationRoutes);
 app.use('/api/userSetting', userSettingRoute);
 app.use('/api/message', messageRoute);
+app.use('/api/file', fileRoute);
 
 
 const PORT = process.env.PORT;

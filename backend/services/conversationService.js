@@ -2,9 +2,7 @@ const Conversations = require('../models/Conversations');
 const Department = require('../models/Department');
 const Users = require('../models/Users');
 const ConversationMember = require('../models/ConversationMember');
-const messageService = require('./messageService');
 const socketService = require('./socketService');
-const { populate } = require('../models/Counters');
 
 const createConvDepartment = async (departmentData, creator) => {
 	try {
@@ -97,25 +95,40 @@ const createConvDepartment = async (departmentData, creator) => {
 	}
 };
 
-const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
+const updateConvDepartment = async (conversationId, updateData, updatedBy, conversationType) => {
+	console.log('memberId:', updatedBy._id);
 	try {
 		const conversation = await Conversations.findById(conversationId).lean().exec();
-		if (!conversation || conversation.type !== 'department') throw new Error('Conversation not found');
+		if (!conversation) throw new Error('Conversation not found');
 
-		const member = await ConversationMember.findOne({
-			conversationId: conversation._id,
-			memberId: updatedBy._id
-		}).lean().exec();
+		const user = await Users.findById(updatedBy._id)
+			.select('position role')
+			.populate('role', 'name')
+			.lean().exec();
 
-		if (!member) throw new Error('User is not a member of this conversation');
+		const isSystemAdmin = user && (user.position === 'Administrator' || user.role.name === 'admin');
+		if (!isSystemAdmin) {
+			const member = await ConversationMember.findOne({
+				conversationId: conversation._id,
+				memberId: updatedBy._id
+			}).lean().exec();
 
-		if (member.role !== 'admin' && member.role !== 'deputy_admin') {
-			throw new Error('User does not have sufficient permissions for this action');
-		};
+			if (!member) throw new Error('User is not a member of this conversation');
 
-		if (!member.permissions.canEditConversation) {
-			throw new Error('User does not have permission to edit conversation');
-		};
+			if (member.role !== 'admin' && member.role !== 'deputy_admin') {
+				throw new Error('User does not have sufficient permissions for this action');
+			};
+
+			if (!member.permissions.canEditConversation) {
+				throw new Error('User does not have permission to edit conversation');
+			};
+			if (updateData.addMembers && updateData.addMembers.length > 0 && !member.permissions.canAddMembers){
+				throw new Error('User does not have permission to add members');
+			}
+			if (updateData.removeMembers && updateData.removeMembers.length > 0 && !member.permissions.canRemoveMembers){
+				throw new Error('User does not have permission to remove members');
+			}
+		}
 
 		const updateFields = {};
 		const systemMessageData = {
@@ -138,22 +151,13 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 
 		updateFields.updatedAt = new Date();
 
-		const updatedConversation = await Conversations.findByIdAndUpdate(
+		let updatedConversation = await Conversations.findByIdAndUpdate(
 			conversation._id,
 			{ $set: updateFields },
 			{ new: true }
 		).lean().exec();
 
-		if (systemMessageData.action) {
-			await socketService.getSocket().createPersonalizedSystemmessage(systemMessageData);
-		}
-
 		if (updateData.addMembers && updateData.addMembers.length > 0 && Array.isArray(updateData.addMembers)) {
-
-			if (!member.permissions.canAddMembers) {
-				throw new Error('User does not have permission to add members');
-			}
-
 			const addedUsers = await Users.find({
 				_id: { $in: updateData.addMembers },
 			}).select('_id name').lean().exec();
@@ -176,10 +180,10 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 						memberId: user._id,
 						role: 'member',
 						permissions: {
-							canChat: false,
+							canChat: conversationType === 'department' ? false : true,
 							canAddMembers: false,
 							canRemoveMembers: false,
-							canEditConversation: false
+							canEditConversation: conversationType === 'department' ? false : true,
 						}
 					});
 					addedMemberIds.push(user._id.toString());
@@ -187,29 +191,14 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 			}
 
 			if (addedMemberIds.length > 0) {
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId: conversation._id,
-					actorId: updatedBy._id,
-					action: 'add_member',
-					data: {
-						addedMemberIds,
-						addedMembers: addedUsers
-					}
-				})
-
-				for (const memberId of addedMemberIds) {
-					await socketService.getSocket().addMemberToConversation(conversationId, memberId);
+				if (conversationType === 'department') {
+					await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 				}
-
-				await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 			}
 		}
 
 		if (updateData.removeMembers && updateData.removeMembers.length > 0 && Array.isArray(updateData.removeMembers)) {
-			if (!member.permissions.canRemoveMembers) {
-				throw new Error('User does not have permission to remove members');
-			}
-
+		
 			const adminMembers = await ConversationMember.find({
 				conversationId: conversation._id,
 				role: { $in: ['admin', 'deputy_admin'] }
@@ -233,19 +222,15 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy) => {
 					memberId: { $in: safeToRemove },
 					role: 'member'
 				});
-
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId: conversation._id,
-					actorId: updatedBy._id,
-					action: 'remove_member',
-					data: { removedMemberIds, removedMembers: removedUsers }
-				})
-
-				await socketService.getSocket().removeMemberFromConversation(conversationId, removedMemberIds);
-				await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
+				if (conversationType === 'department') {
+					await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
+				}
 			}
 		}
-		await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
+		if (conversationType === 'department') {
+			await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
+		}
+		updatedConversation = await Conversations.findById(conversation._id).lean().exec();
 		return updatedConversation;
 	} catch (error) {
 		throw error;
@@ -284,6 +269,9 @@ const deleteConvDepartment = async (conversationId, user) => {
 }
 
 const createConvGroup = async (groupData, creator) => {
+
+	console.log('Group Data:', groupData);
+	console.log('Creator:', creator);
 	try {
 
 		if (!groupData.name) throw new Error('Group name is required');
@@ -291,8 +279,12 @@ const createConvGroup = async (groupData, creator) => {
 			throw new Error('Participants are required');
 		}
 
-		if (!groupData.members.includes(creator._id)) {
-			groupData.members.push(creator._id);
+		if (!creator || !creator._id) {
+			throw new Error('Creator is required');
+		}
+
+		if (!groupData.members.includes(creator._id.toString())) {
+			groupData.members.push(creator._id.toString());
 		}
 
 		const conversation = await Conversations.create({
@@ -331,11 +323,21 @@ const createConvGroup = async (groupData, creator) => {
 				}
 			});
 		};
+
+		await socketService.getSocket().createPersonalizedSystemmessage({
+			conversationId: conversation._id,
+			actorId: creator._id,
+			action: 'create_conversation',
+			data: { conversationName: conversation.name }
+		})
+
 		return conversation;
 	} catch (error) {
 		throw error;
 	}
 }
+
+
 
 const checkconversationPermission = async (conversationId, userId, requiredRole = ['admin', 'deputy_admin']) => {
 	try {
@@ -389,7 +391,6 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 			memberId: targetUserId
 		}).populate('memberId', 'name').lean().exec();
 
-		console.log()
 		if (!targetMember) throw new Error('Target user is not a member of this conversation');
 
 		if (targetMember.role === 'admin' || targetMember.role === 'deputy_admin') {
@@ -411,23 +412,8 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 				}
 			},
 			{ new: true }
-		);
-		await socketService.getSocket().createPersonalizedSystemmessage({
-			conversationId,
-			actorId: currentUserId,
-			action: 'assign_deputy_admin',
-			data: {
-				deputyMember: {
-					id: targetUserId,
-					name: targetMember.memberId.name
-				}
-			}
-		})
-		return {
-			success: true,
-			message: 'Deputy admin assigned',
-			data: updatedMember
-		}
+		).populate('memberId', 'name').lean().exec();
+		return updatedMember;
 	} catch (error) {
 		throw error;
 	}
@@ -471,7 +457,7 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 			}
 		)
 
-		await ConversationMember.findOneAndUpdate(
+		const updatedUser = await ConversationMember.findOneAndUpdate(
 			{ conversationId, memberId: newAdminId },
 			{
 				$set: {
@@ -485,24 +471,8 @@ const transferAdminRole = async (conversationId, currentUserId, newAdminId) => {
 					}
 				}
 			}
-		);
-
-		await socketService.getSocket().createPersonalizedSystemmessage({
-			conversationId,
-			actorId: currentUserId,
-			action: 'transfer_admin',
-			data: {
-				newAdmin: {
-					id: newAdminId,
-					name: newAdmin.memberId.name
-				}
-			}
-		});
-		return {
-			success: true,
-			message: 'Admin role transferred successfully',
-			newAdminId: newAdminId
-		}
+		).populate('memberId', 'name').lean().exec();
+		return updatedUser;
 
 	} catch (error) {
 		throw error;
@@ -528,7 +498,7 @@ const getConvById = async (currentUserId) => {
 		})
 			.populate({
 				path: 'lastMessage',
-				select: 'content type createdAt attachments sentAt sender isRecalled isEdited status replyTo',
+				select: 'content type createdAt attachments sentAt sender isRecalled isEdited status replyTo recallType metadata attachments',
 				populate: [
 					{
 						path: 'sender',
@@ -537,12 +507,19 @@ const getConvById = async (currentUserId) => {
 					{
 						path: 'replyTo',
 						select: 'content type createdAt attachments sentAt sender isRecalled isEdited status replyTo',
-						populate:{
+						populate: {
 							path: 'sender',
 							select: 'name avatar position status'
 						}
+					},
+					{
+						path: 'attachments',
+						select: 'fileName fileUrl fileType mimeType fileSize uploadedBy conversationId thumbnails'
 					}
 				]
+			}).populate({
+				path: 'departmentId',
+				select: 'name avatarGroup members header'
 			})
 			.populate({
 				path: 'creator',
@@ -565,18 +542,29 @@ const getConvById = async (currentUserId) => {
 						}
 					})
 					.lean();
+
+				// Tạo mảng members với thông tin role và permissions bổ sung
+				const enrichedMembers = members.map(member => {
+					// Tạo đối tượng user từ memberId và bổ sung thêm role và permissions
+					const memberData = {
+						...member.memberId,  // Giữ nguyên thông tin user (name, avatar, position, status, department)
+						role: member.role,
+						permissions: member.permissions
+					};
+					return memberData;
+				});
+
 				const userMember = await ConversationMember.findOne({
 					conversationId: conversation._id,
 					memberId: currentUserId
-				}).lean();
-
-				console.log('Conversation:', conversation);
+				})
+					.lean();
 
 				return {
 					_id: userMember._id,
 					conversationInfo: {
 						...conversation,
-						members: members.map(member => member.memberId),
+						members: enrichedMembers, // Sử dụng mảng members đã được bổ sung role và permissions
 					},
 					memberId: currentUserId,
 					unreadCount: userMember.unreadCount,
@@ -589,6 +577,94 @@ const getConvById = async (currentUserId) => {
 		throw error;
 	}
 }
+
+const getAllConvDepartment = async () => {
+	try {
+		const conversations = await Conversations.find({ type: 'department' }).lean().exec();
+		if (!conversations) throw new Error('No conversations found');
+
+		const conversationIds = conversations.map(conversation => conversation._id);
+
+		const conversationMember = await ConversationMember.find({
+			conversationId: { $in: conversationIds }
+		}).lean().exec();
+		if (!conversationMember) {
+			return conversations.map(conv => ({ ...conv, members: [] }));
+		};
+		const memberIds = [...new Set(conversationMember.map(member => member.memberId))];
+		const members = await Users.find({ _id: { $in: memberIds } })
+			.populate('name email avatar department position role')
+			.lean().exec();
+
+		if (!members) {
+			return conversations.map(conv => ({ ...conv, members: [] }));
+		};
+
+		const enrichedConversations = conversations.map(conversation => {
+			const membersInConversation = conversationMember.filter(member => member.conversationId.toString() === conversation._id.toString());
+			const enrichedMembers = membersInConversation.map(member => {
+				const user = members.find(user => user._id.toString() === member.memberId.toString());
+				return {
+					...user,
+					role: member.role,
+					permissions: member.permissions,
+					joinedAt: member.joinedAt,
+				}
+			}).filter(Boolean);
+			return {
+				...conversation,
+				memberCount: enrichedMembers.length,
+				members: enrichedMembers
+			}
+		});
+		return enrichedConversations;
+	} catch (error) {
+		throw error;
+	}
+}
+const getAllConvDepartmentById = async (conversationId) => {
+	try {
+		const conversation = await Conversations.findOne({
+			_id: conversationId,
+			type: 'department'
+		}).lean().exec();
+		if (!conversation) throw new Error('No conversations found');
+
+		const conversationMembers = await ConversationMember.find({
+			conversationId: { $in: conversation._id }
+		}).lean().exec();
+
+		if (!conversationMembers) {
+			return ({ ...conversation, members: [] });
+		};
+		const memberIds = conversationMembers.map(member => member.memberId);
+
+		const members = await Users.find({ _id: { $in: memberIds } })
+			.populate('name email avatar department position role')
+			.lean().exec();
+
+		if (!members) {
+			return ({ ...conversation, members: [] });
+		};
+
+		const enrichedMembers = conversationMembers.map(member => {
+			const user = members.find(user => user._id.toString() === member.memberId.toString());
+			return {
+				...user,
+				role: member.role,
+				permissions: member.permissions,
+				joinedAt: member.joinedAt,
+			}
+		}).filter(Boolean);
+		return {
+			...conversation,
+			memberCount: enrichedMembers.length,
+			members: enrichedMembers
+		}
+	} catch (error) {
+		throw error;
+	}
+}
 module.exports = {
 	createConvDepartment,
 	updateConvDepartment,
@@ -597,5 +673,7 @@ module.exports = {
 	updateAllMembersChat,
 	assignDeputyAdmin,
 	transferAdminRole,
-	getConvById
+	getConvById,
+	getAllConvDepartment,
+	getAllConvDepartmentById
 }

@@ -212,6 +212,7 @@ const transferAdminRole  = async (req, res) => {
 const getConversationByUserId = async (req, res) => {
     try {
         const conversation = await conversationService.getConvById(req.params.userId);
+        console.log('Debug conversation:', conversation);
         return res.status(200).json({
             success: true,
             data: conversation
@@ -224,6 +225,37 @@ const getConversationByUserId = async (req, res) => {
         });
     }
 };
+const getAllConvDepartment = async (req, res) => {
+    try{
+        const conversations = await conversationService.getAllConvDepartment();
+        return res.status(200).json({
+            success: true,
+            data: conversations
+        });
+    }catch(error){
+        console.error('Get all department conversations error:', error.message);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+}
+
+const getAllConvDepartmentById = async (req, res) => {
+    try{
+        const conversations = await conversationService.getAllConvDepartmentById(req.params.id);
+        return res.status(200).json({
+            success: true,
+            data: conversations
+        });
+    }catch(error){
+        console.error('Get all department conversations by ID error:', error.message);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+}
 module.exports = {
     createConvDepartment,
     updateConvDepartment,
@@ -232,5 +264,7 @@ module.exports = {
     updateAllMembersChatPermission,
     assignDeputyAdmin,
     transferAdminRole,
-    getConversationByUserId
+    getConversationByUserId,
+    getAllConvDepartment,
+    getAllConvDepartmentById
 };

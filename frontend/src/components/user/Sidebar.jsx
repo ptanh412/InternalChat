@@ -1,5 +1,5 @@
-import { CiChat2, CiBrightnessDown, CiDark, CiLight } from "react-icons/ci";
-import { MdVpnKey } from "react-icons/md";
+import { CiBrightnessDown } from "react-icons/ci";
+import { MdPassword, MdVpnKey } from "react-icons/md";
 import { Link, useNavigate } from "react-router-dom";
 import { TiMessageTyping } from "react-icons/ti";
 import { HiOutlineUserGroup } from "react-icons/hi2";
@@ -9,17 +9,22 @@ import { FaRegUser, FaSun } from "react-icons/fa";
 import { useRef, useState, useEffect } from "react";
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from "../../context/UserContext";
+import iconChat from "../../assets/messenger.png";
+import { MdOutlineVpnKey } from "react-icons/md";
+import axios from "axios";
+import ChangePassword from "./ChangePassword";
 
 
 const Sidebar = ({ setCurrentComponent }) => {
 
     const [showMenu, setShowMenu] = useState(false);
+    const [showPasswordForm, setShowPasswordForm] = useState(false);
     const { theme, toggleTheme } = useTheme();
     const menuRef = useRef(null);
     const handleShowMenu = () => {
         setShowMenu(!showMenu);
     }
-    const {user, logout} = useUser();
+    const { user, logout } = useUser();
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -44,14 +49,19 @@ const Sidebar = ({ setCurrentComponent }) => {
         { name: 'Profile', icon: <FaRegUser />, component: 'Profile' },
     ];
 
-    const handleLogout = () =>{
+    const handleLogout = () => {
         navigate('/login');
         logout();
+    }
+
+    const handleShowPasswordForm = () => {
+        setShowPasswordForm(!showPasswordForm);
+        setShowMenu(false);
     }
     return (
         <div className={`h-screen bg-white dark:bg-black shadow-2xl transition-all duration-300 overflow-hidden p-5 flex flex-col justify-between`}>
             <div className={`text-3xl font-bold dark:text-white flex items-center text-center justify-center mt-10 `}>
-                <CiChat2 />
+                <img src={iconChat} alt="" className="w-8 h-8" />
             </div>
             <div className="space-y-4 mb-[70px]">
                 <ul className={`space-y-14 text-base cursor-pointer px-0`}>
@@ -72,33 +82,39 @@ const Sidebar = ({ setCurrentComponent }) => {
 
             </div>
             {showMenu && (
-                <div ref={menuRef} className="absolute w-48 left-16 bottom-1 bg-white dark:bg-neutral-800  shadow-lg rounded-lg p-2 Z-20 dark:text-white">
+                <div ref={menuRef} className="absolute w-48 left-16 bottom-1 bg-white dark:bg-neutral-800  shadow-lg rounded-lg p-2 z-[1000] dark:text-white">
                     <button
                         onClick={toggleTheme}
                         className='text-gray-700 w-full dark:text-gray-300 p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors duration-200 flex items-center space-x-2'
                     >
                         {theme === 'dark' ? (
                             <>
-                                <CiLight className='' />
-                                <p>Light mode</p>
+                                <FaSun className='text-xl' />
+                                <span>Light Mode</span>
                             </>
 
                         ) : (
                             <>
-                                <CiDark className="" />
-                                <p>Dark mode</p>
+                                <CiBrightnessDown className=" text-xl" />
+                                <span>Dark Mode</span>
                             </>
                         )}
                     </button>
-                    <Link to="/settings" className="flex items-center space-x-2 p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg">
-                        <CiSettings />
-                        <span>Settings</span>
-                    </Link>
-                    <button onClick={handleLogout} className="flex items-center space-x-2 p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg">
+                    <button
+                        className="text-gray-700 w-full dark:text-gray-300 p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors duration-200 flex items-center space-x-2"
+                        onClick={handleShowPasswordForm}
+                    >
+                        <MdOutlineVpnKey className="text-xl" />
+                        <span>Change Password</span>
+                    </button>
+                    <button onClick={handleLogout} className="flex items-center space-x-2 p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg w-full">
                         <MdVpnKey />
                         <span>Logout</span>
                     </button>
                 </div>
+            )}
+            {showPasswordForm && (
+                <ChangePassword onClose={() => setShowPasswordForm(false)}/>
             )}
         </div>
     );

@@ -14,15 +14,15 @@ export const UserProvider = ({ children }) => {
         const storedUser = localStorage.getItem("userData");
         const token = localStorage.getItem("token");
 
-        if (storedUser && token){
-            try{
+        if (storedUser && token) {
+            try {
                 const parsedUser = JSON.parse(storedUser);
                 setUser(parsedUser);
-    
-                if (window.location.pathname !== "/login"){
+
+                if (window.location.pathname !== "/login") {
                     connectSocket(token);
                 }
-            }catch(error){
+            } catch (error) {
                 console.error("Error getting user data", error);
                 localStorage.removeItem("userData");
                 localStorage.removeItem("token");
@@ -32,9 +32,9 @@ export const UserProvider = ({ children }) => {
         setLoading(false);
     }, []);
 
-    const connectSocket = (token) =>{
+    const connectSocket = (token) => {
 
-        if (socket){
+        if (socket) {
             socket.disconnect();
         }
         const newSocket = io("http://localhost:5000", {
@@ -42,47 +42,60 @@ export const UserProvider = ({ children }) => {
                 token
             },
             autoConnect: false,
-        });   
-        
+        });
+
         newSocket.on('connect', () => {
             console.log("Socket connected");
         });
 
-        newSocket.on('user:status', (data) =>{
-            setOnlineUsers(prev =>({
+        newSocket.on('user:status', (data) => {
+            setOnlineUsers(prev => ({
                 ...prev,
                 [data.userId]: data.status
             }))
 
-            if (data.userId === user._id){
+            if (data.userId === user._id) {
                 const userData = JSON.parse(localStorage.getItem("userData"));
 
-                if (userData){
+                if (userData) {
                     userData.status = data.status;
                     localStorage.setItem("userData", JSON.stringify(userData));
                 }
             }
         });
+        newSocket.on('user:updated', (data) => {
+            console.log('user:updated event received', data);
+            const userId  = data.userId;
+            const updatedFields = data.updateFields;
+            if (userId === user._id) {
+                updateUserData(updatedFields);
+            }
+        })
 
-        newSocket.on('connect_error', (err) =>{
+        newSocket.on('user:status-success', (data) => {
+            if (data.user && data.user._id === user._id) {
+                updateUserData(data.user);
+            }
+        })
+        newSocket.on('connect_error', (err) => {
             console.error('Socket connection error', err.message);
         });
         newSocket.connect();
         setSocket(newSocket);
         return newSocket;
     }
-    const login = async (email, password) =>{
-        try{
+    const login = async (email, password) => {
+        try {
             const response = await axios.post("http://localhost:5000/api/auth/login", {
                 email,
                 password
-            },{
+            }, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
                 }
             });
 
-            if (response.data.success){
+            if (response.data.success) {
                 const userData = response.data.data;
                 const token = userData.token;
                 const userInfo = userData.user;
@@ -96,30 +109,30 @@ export const UserProvider = ({ children }) => {
 
                 connectSocket(token);
 
-                return{
+                return {
                     success: true,
                     message: response.data.message,
                     user: userInfo,
                     isAdmin: userInfo.role.name === "admin",
                     token: token
                 }
-            }else{
-                return{
+            } else {
+                return {
                     success: false,
                     message: response.data.message
                 }
             }
-        }catch(error){
+        } catch (error) {
             console.error("Login error", error);
-            return{
+            return {
                 success: false,
                 message: error.response.data.message || "Error logging in"
             }
         }
     }
 
-    const logout = () =>{
-        if (socket){
+    const logout = () => {
+        if (socket) {
             socket.emit('user:logout');
             socket.disconnect();
         }
@@ -131,15 +144,32 @@ export const UserProvider = ({ children }) => {
         setSocket(null);
     };
 
-    const getUserStatus = (userId) =>{
-        if (userId === user._id){
+    const getUserStatus = (userId) => {
+        if (userId === user._id) {
             return user.status || "offline";
         }
-        if(onlineUsers[userId]){
+        if (onlineUsers[userId]) {
             return onlineUsers[userId];
         }
         return "offline";
     };
+
+    // const updateUserData = (updatedFields) => {
+    //     if (!updatedFields || !user) return user;
+    //     try{
+    //         const userData = JSON.parse(localStorage.getItem("userData")) || user;
+
+    //         const updatedUser = {
+    //             ...userData,
+    //             ...updatedFields
+    //         };
+    //         localStorage.setItem("userData", JSON.stringify(updatedUser));
+    //         setUser(updatedUser);
+    //     }catch(error){
+    //         console.error("Error updating user data", error);
+    //     }
+    // }
+   
     const value = {
         user,
         setUser,
@@ -149,16 +179,17 @@ export const UserProvider = ({ children }) => {
         onlineUsers,
         loading,
         getUserStatus,
-        connectSocket
+        connectSocket,
+        // updateUserData,
     };
-    
+
     return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 };
 
 export const useUser = () => {
     const context = useContext(UserContext);
 
-    if (!context){
+    if (!context) {
         throw new Error("useUser must be used within a UserProvider");
     }
 

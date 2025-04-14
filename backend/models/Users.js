@@ -47,6 +47,10 @@ const userSchema = new mongoose.Schema({
 		default: '',
 		max: 10
 	},
+	address: {
+		type: String,
+		default: ''
+	},
 	avatar: {
 		type: String,
         default: 'https://res.cloudinary.com/doruhcyf6/image/upload/v1732683090/blank-profile-picture-973460_1280_docdnf.png',

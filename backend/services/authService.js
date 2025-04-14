@@ -224,18 +224,30 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 			position: user.position
 		}
 
+		if (updateData.name && updateData.name !== user.name) {
+			const nameExists = await Users.findOne({
+				name: updateData.name
+			});
+			if (nameExists) throw new Error('Name already exists');
+		}
+
+		if (updateData.phoneNumber && updateData.phoneNumber !== user.phoneNumber) {
+			const phoneNumberExists = await Users.findOne({
+				phoneNumber: updateData.phoneNumber
+			});
+			if (phoneNumberExists) throw new Error('Phone number already exists');
+		}
+		if (updateData.address && updateData.address !== user.address) {
+			const addressExists = await Users.findOne({
+				address: updateData.address
+			});
+			if (addressExists) throw new Error('Phone number already exists');
+		}
 		if (updateData.email && updateData.email !== user.email) {
 			const emailExists = await Users.findOne({
 				email: updateData.email
 			});
 			if (emailExists) throw new Error('Email already exists');
-		}
-
-		if (updateData.employeeId && updateData.employeeId !== user.employeeId) {
-			const employeeIdExists = await Users.findOne({
-				employeeId: updateData.employeeId
-			});
-			if (employeeIdExists) throw new Error('Employee ID already exists');
 		}
 
 		let oldDepartmentId = user.department;
@@ -334,13 +346,10 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 		}
 
 		await helpers.createUpdateNotification(user, originalValues, updateData, adminUser);
-		const santizedUser = user.toObject();
-		delete santizedUser.password;
-
-		await socketService.getSocket().notifyUserUpdate(santizedUser);
-
+		
 		const result = user.toObject();
 		delete result.password;
+		await socketService.getSocket().notifyUserUpdate(result);
 		return result;
 	} catch (error) {
 		throw error;
@@ -937,15 +946,13 @@ const getAllUsers = async (queryParams = {}, page = 1, limit = 10) => {
 
 		const skip = (page - 1) * limit;
 		const users = await Users.find(filters)
-			.select('email name phoneNumber employeeId position department status')
+			.select('email name phoneNumber employeeId position department status address createdAt updatedAt')
 			.populate('department', 'name')
 			.sort({ createdAt: -1 })
 			.skip(skip)
 			.limit(limit);
 
 		const totalUsers = await Users.countDocuments(filters);
-
-		console.log('Users:', users);
 
 		return {
 			users,
@@ -965,7 +972,7 @@ const getUserById = async (userId) => {
 	try {
 		if (!userId) throw new Error('Invalid user ID');
 		const user = await Users.findById(userId)
-			.select('email name phoneNumber employeeId position department')
+			.select('email name phoneNumber employeeId position department address createdAt updatedAt')
 			.populate('department', 'name')
 
 		return user;

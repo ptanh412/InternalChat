@@ -15,8 +15,9 @@ const messageSchema = new mongoose.Schema({
 		type: String,
 		default: '',
 		validate:{
-			validator: function(value){
-				return this.attachments && this.attachments.length === 0 || (value && value.trim().length > 0);
+			validator: function(value) {
+				// Try accessing attachments from the document being validated
+				return (this.get('attachments') && this.get('attachments').length > 0) || (value && value.trim().length > 0);
 			},
 			message: 'Message content cannot be empty'
 		}
@@ -56,15 +57,8 @@ const messageSchema = new mongoose.Schema({
 		default: Date.now
 	},
 	attachments: [{
-		fileName: String,
-        fileUrl: String,
-        fileType: {
-            type: String,
-            enum: ['image', 'video', 'pdf', 'document', 'spreadsheet', 'presentation', 'archive', 'raw', 'other'],
-            default: 'other'
-        },
-        mimeType: String,
-        fileSize: Number,
+		type: mongoose.Schema.Types.ObjectId,
+		ref: 'File'
 	}],
 	readBy:[{
 		user:{
@@ -109,12 +103,35 @@ const messageSchema = new mongoose.Schema({
 	isEdited:{
 		type: Boolean,
 		default: false
-	}
+	},
+	metadata:{
+		type: mongoose.Schema.Types.Mixed,
+		default: null
+	},
 });
 
 messageSchema.index({conversationId: 1, createdAt: 1});
 messageSchema.index({sender: 1});
 messageSchema.index({replyTo: 1});
 messageSchema.index({isPinned: 1});
+
+messageSchema.pre('save', async function(next) {
+	if (this.attachments && this.attachments.length > 0) {
+		await mongoose.model('File').updateMany(
+			{ _id: { $in: this.attachments } },
+			{ $addToSet: { usedInMessages: this._id } }
+		)
+	}
+});
+
+messageSchema.pre('remove', async function(next) {
+	if (this.attachments && this.attachments.length > 0) {
+		await mongoose.model('File').updateMany(
+			{ _id: { $in: this.attachments } },
+			{ $pull: { usedInMessages: this._id } }
+		)
+	}
+	next();
+})
 
 module.exports = mongoose.model('Message', messageSchema);

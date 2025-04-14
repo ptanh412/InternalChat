@@ -14,3 +14,13 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+#emoji-picker-wrapper .epr-body {
+  overflow-y: auto !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+#emoji-picker-wrapper .epr-body::-webkit-scrollbar {
+  display: none !important;
+}

@@ -128,15 +128,15 @@ const Roles = () => {
                 </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-gray-800">
-                <div className="p-4 border-b dark:border-gray-700">
+            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-neutral-800">
+                <div className="p-4 border-b dark:border-neutral-700">
                     <div className="flex items-center space-x-4">
                         <input
                             type="text"
-                            className="pl-4 pr-4 py-2 rounded-lg border dark:text-white dark:bg-gray-700 dark:border-gray-600 border-gray-300 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
+                            className="pl-4 pr-4 py-2 rounded-lg border dark:text-white dark:bg-neutral-700 dark:border-neutral-600 border-neutral-300 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                             placeholder="Search accounts..."
                         />
-                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:bg-gray-700 dark:border-gray-600 dark:text-white border-gray-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
+                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:bg-neutral-700 dark:border-neutral-600 dark:text-white border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
                             <option value="">All Roles</option>
                             {roles.map(role => (
                                 <option key={role._id} value={role._id}>{role.name}</option>
@@ -144,32 +144,32 @@ const Roles = () => {
                         </select>
                     </div>
                 </div>
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-                    <thead className="bg-gray-50 dark:bg-gray-800 dark:border-gray-500">
+                <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
+                    <thead className="bg-neutral-50 dark:bg-neutral-800 dark:border-neutral-500">
                         <tr>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role Name</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Permission</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Update At</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">ID</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Role Name</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Permission</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Update At</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200 dark:divide-gray-500 dark:bg-gray-800">
+                    <tbody className="bg-white divide-y divide-neutral-200 dark:divide-neutral-500 dark:bg-neutral-800">
                         {roles.map((role, index) => (
-                            <tr key={role._id || `role-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white">
+                            <tr key={role._id || `role-${index}`} className="hover:bg-neutral-50 dark:hover:bg-neutral-700 dark:text-white">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{index + 1}</div>
+                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">{index + 1}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-500 dark:text-white">{role.name || 'N/A'}</div>
+                                    <div className="text-sm text-neutral-500 dark:text-white">{role.name || 'N/A'}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-500 dark:text-white">
+                                    <div className="text-sm text-neutral-500 dark:text-white">
                                         {formatPermissions(role.permissions)}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-500 dark:text-white">{formatDate(role.updatedAt)}</div>
+                                    <div className="text-sm text-neutral-500 dark:text-white">{formatDate(role.updatedAt)}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <div className="flex space-x-2">
@@ -184,16 +184,16 @@ const Roles = () => {
                             </tr>
                         ))}
                         {isAdding && (
-                            <tr className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <input
                                         type="text"
                                         value={newRole.name}
                                         onChange={(e) => handleNewRoleChange(e, 'name')}
-                                        className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         placeholder='Role Name'
                                     />
                                 </td>
@@ -207,7 +207,7 @@ const Roles = () => {
                                                 onChange={() => handlePermissionChange('createGroup')}
                                                 className='mr-2'
                                             />
-                                            <label htmlFor='createGroup' className='text-sm text-gray-700 dark:text-white'>Create Group</label>
+                                            <label htmlFor='createGroup' className='text-sm text-neutral-700 dark:text-white'>Create Group</label>
                                         </div>
                                         <div className='flex items-center'>
                                             <input
@@ -217,7 +217,7 @@ const Roles = () => {
                                                 onChange={() => handlePermissionChange('createDepartment')}
                                                 className='mr-2'
                                             />
-                                            <label htmlFor='createDepartment' className='text-sm text-gray-700 dark:text-white'>Create Department</label>
+                                            <label htmlFor='createDepartment' className='text-sm text-neutral-700 dark:text-white'>Create Department</label>
                                         </div>
                                         <div className='flex items-center'>
                                             <input
@@ -227,7 +227,7 @@ const Roles = () => {
                                                 onChange={() => handlePermissionChange('manageDepartment')}
                                                 className='mr-2'
                                             />
-                                            <label htmlFor='manageDepartment' className='text-sm text-gray-700 dark:text-white'>Manage Department</label>
+                                            <label htmlFor='manageDepartment' className='text-sm text-neutral-700 dark:text-white'>Manage Department</label>
                                         </div>
                                         <div className='flex items-center'>
                                             <input
@@ -237,12 +237,12 @@ const Roles = () => {
                                                 onChange={() => handlePermissionChange('manageUsers')}
                                                 className='mr-2'
                                             />
-                                            <label htmlFor='manageUsers' className='text-sm text-gray-700 dark:text-white'>Mange User</label>
+                                            <label htmlFor='manageUsers' className='text-sm text-neutral-700 dark:text-white'>Mange User</label>
                                         </div>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <div className="flex space-x-2">
@@ -264,17 +264,17 @@ const Roles = () => {
                         )}
                     </tbody>
                 </table>
-                <div className="px-6 py-4 flex items-center justify-between border-t dark:border-gray-700">
+                <div className="px-6 py-4 flex items-center justify-between border-t dark:border-neutral-700">
                     <div>
-                        <p className="text-sm text-gray-700 dark:text-white">
+                        <p className="text-sm text-neutral-700 dark:text-white">
                             Showing <span className="font-medium">1</span> to <span className="font-medium">5</span> of <span className="font-medium">5</span> results
                         </p>
                     </div>
                     <div className="flex space-x-2">
-                        <button className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
                             Previous
                         </button>
-                        <button className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
                             Next
                         </button>
                     </div>

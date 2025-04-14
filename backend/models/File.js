@@ -16,7 +16,7 @@ const fileSchema = new mongoose.Schema({
 	},
 	fileType: {
 		type: String,
-        enum: ['image', 'video', 'pdf', 'document', 'spreadsheet', 'presentation', 'archive', 'raw', 'other'],
+        enum: ['image', 'video', 'pdf', 'document', 'spreadsheet', 'presentation', 'archive'],
 		default: 'other'
 	},
 	mimeType: String,
@@ -38,7 +38,11 @@ const fileSchema = new mongoose.Schema({
 	uploadAt: {
 		type: Date,
 		default: Date.now
-	}
+	},
+	usedInMessage: [{
+		type: mongoose.Schema.Types.ObjectId,
+		ref: 'Message',
+	}]
 });
 
 fileSchema.index({conversationId: 1});

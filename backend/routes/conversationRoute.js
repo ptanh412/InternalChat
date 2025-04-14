@@ -12,5 +12,7 @@ router.put('/update-group', authentication, conversationController.updateAllMemb
 router.post('/assign-deputy', authentication, conversationController.assignDeputyAdmin);
 router.post('/transfer-admin', authentication, conversationController.transferAdminRole);
 router.get('/user/:userId', authentication, conversationController.getConversationByUserId);
+router.get('/department', authentication, conversationController.getAllConvDepartment);
+router.get('/department/:id', authentication, conversationController.getAllConvDepartmentById);
 
 module.exports = router;

@@ -2,9 +2,8 @@ const ConversationMember = require("../models/ConversationMember");
 const socketService = require("./socketService");
 const Messages = require('../models/Messages');
 const Conversations = require("../models/Conversations");
+const fileService = require("./fileService");
 const File = require("../models/File");
-
-// const { io, userSocketMap } = require('../services/socketService');
 
 const createSystemMessage = async ({ conversationId, sender, content, metaData = {} }) => {
     try {
@@ -26,6 +25,7 @@ const createSystemMessage = async ({ conversationId, sender, content, metaData =
 }
 
 const createMessage = async ({ messageData }) => {
+    console.log('Creating message:', messageData);
     try {
         const isMember = await ConversationMember.findOne({
             conversationId: messageData.conversationId,
@@ -40,26 +40,31 @@ const createMessage = async ({ messageData }) => {
             throw new Error('You do not have permission to chat in this conversation');
         }
 
-        const message = new Messages(messageData);
-        await message.save();
+      
+
+        let processAttachments = [];
 
         if (messageData.attachments && messageData.attachments.length > 0) {
-            const filePromises = messageData.attachments.map(attachment =>
-                File.create({
-                    original: attachment.fileName,
-                    fileName: attachment.fileName,
-                    fileUrl: attachment.fileUrl,
-                    fileType: attachment.fileType,
-                    mimeType: attachment.mimeType,
-                    fileSize: attachment.fileSize,
-                    uploadedBy: messageData.sender,
-                    conversationId: messageData.conversationId,
-                    messageId: message._id
-                })
-            );
-            await Promise.all(filePromises);
+            processAttachments = await fileService.processAttachments(
+                messageData.attachments,
+                messageData.sender,
+                messageData.conversationId
+            )
         }
+        const message = new Messages({
+            ...messageData,
+            attachments: processAttachments,
+            type: processAttachments.length > 0 ? 'multimedia' : messageData.type,
 
+        });
+        await message.save();
+
+        console.log('Processed attachments:', processAttachments);
+
+        if (processAttachments.length > 0) {
+            await fileService.associateFilesWithMessage(processAttachments, message._id);
+        }
+        
         await Conversations.findByIdAndUpdate(messageData.conversationId, {
             lastMessage: message._id,
             updatedAt: new Date()
@@ -68,6 +73,10 @@ const createMessage = async ({ messageData }) => {
         return await Messages.findById(message._id)
             .populate('sender', 'name avatar status')
             .populate('replyTo', 'content sender')
+            .populate({
+                path: 'attachments',
+                select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+            })
             .lean();
     } catch (error) {
         throw new Error(`Failed to create message: ${error.message}`);
@@ -104,10 +113,13 @@ const replyMessage = async ({ messageId, userId, content }) => {
             .populate({
                 path: 'replyTo',
                 select: 'content sender',
-                populate: {
+                populate: [{
                     path: 'sender',
                     select: 'name avatar status'
-                }
+                }, {
+                    path: 'attachments',
+                    select: 'fileName fileUrl fileType mimeType fileSize thumbnails'
+                }]
             })
             .lean();
         const members = await ConversationMember.find({ conversationId: message.conversationId });
@@ -185,13 +197,6 @@ const recallMessage = async ({ messageId, userId, recallType }) => {
         if (message.sender.toString() !== userId.toString()) {
             throw new Error('You can only recall your own messages');
         }
-
-        const messageAge = (Date.now() - message.createdAt) / 1000 / 60;
-
-        if (messageAge > 60) {
-            throw new Error('Message is too old to recall');
-        }
-
         message.isRecalled = true;
         message.recallType = recallType;
         message.updatedAt = new Date();
@@ -201,31 +206,10 @@ const recallMessage = async ({ messageId, userId, recallType }) => {
         if (!conversation) {
             throw new Error('Conversation not found');
         }
-
-        await socketService.getSocket().createPersonalizedSystemMessage({
-            conversationId: message.conversationId,
-            actorId: userId,
-            action: 'recall_message',
-            data: {
-                recallType,
-                messageId: message._id
-            }
-        })
-
-        const members = await ConversationMember.find({ conversationId: message.conversationId });
-        for (const member of members) {
-            const recipientSocketId = userSocketMap.get(member.memberId.toString());
-            if (recipientSocketId) {
-                io.to(recipientSocketId).emit('message:recalled', {
-                    messageId: message._id,
-                    conversationId: message.conversationId,
-                    recallType
-                });
-            }
-        }
         return {
             messageId: message._id,
             conversationId: message.conversationId,
+            isRecalled: message.isRecalled,
             recallType
         }
     } catch (error) {
@@ -353,10 +337,11 @@ const getMessageByConversationId = async (conversationId) => {
         const messages = await Messages.find({ conversationId })
             .populate('sender', 'name avatar status')
             .populate('replyTo', 'content sender')
+            .populate('attachments', 'fileName fileUrl fileType mimeType fileSize thumbnails')
             .populate('reactions.user', 'name avatar')
-            .populate('readBy.user', 'name avatar status') // Populate the 'user' field within readBy
+            .populate('readBy.user', 'name avatar status')
             .lean();
-        return messages; ``
+        return messages; 
     } catch (error) {
         throw new Error(`Failed to get messages: ${error.message}`);
     }

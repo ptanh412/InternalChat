@@ -153,15 +153,15 @@ const Department = () => {
                 </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-gray-800">
-                <div className="p-4 border-b dark:border-gray-700">
+            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-neutral-800">
+                <div className="p-4 border-b dark:border-neutral-700">
                     <div className="flex items-center space-x-4">
                         <input
                             type="text"
-                            className="pl-4 pr-4 py-2 rounded-lg border border-gray-300 dark:bg-gray-700 dark:border-gray-500 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
+                            className="pl-4 pr-4 py-2 rounded-lg border border-neutral-300 dark:bg-neutral-700 dark:border-neutral-500 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                             placeholder="Search accounts..."
                         />
-                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:text-white border-gray-300 dark:bg-gray-700 dark:border-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
+                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:text-white border-neutral-300 dark:bg-neutral-700 dark:border-neutral-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
                             <option value="">All Departments</option>
                             {departments.map(department => (
                                 <option key={department._id} value={department._id}>{department.name}</option>
@@ -169,21 +169,21 @@ const Department = () => {
                         </select>
                     </div>
                 </div>
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-                    <thead className="bg-gray-50 dark:bg-gray-800 dark:border-gray-500">
-                        <tr className='dark:border-gray-700'>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ">ID</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Header</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
+                    <thead className="bg-neutral-50 dark:bg-neutral-800 dark:border-neutral-500">
+                        <tr className='dark:border-neutral-700'>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider ">ID</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Name</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Description</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Header</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200 dark:divide-gray-500 dark:bg-gray-800">
+                    <tbody className="bg-white divide-y divide-neutral-200 dark:divide-neutral-500 dark:bg-neutral-800">
                         {departments.map((department, index) => (
-                            <tr key={department._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <tr key={department._id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{index + 1}</div>
+                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">{index + 1}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     {editingId === department._id ? (
@@ -191,10 +191,10 @@ const Department = () => {
                                             type="text"
                                             value={editForm.name}
                                             onChange={(e) => handleInputChange(e, 'name')}
-                                            className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                            className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         />
                                     ) : (
-                                        <div className="text-sm text-gray-500 dark:text-white">{department.name}</div>
+                                        <div className="text-sm text-neutral-500 dark:text-white">{department.name}</div>
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -203,10 +203,10 @@ const Department = () => {
                                             type="text"
                                             value={editForm.description}
                                             onChange={(e) => handleInputChange(e, 'description')}
-                                            className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                            className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         />
                                     ) : (
-                                        <div className="text-sm text-gray-500 dark:text-white">{department.description}</div>
+                                        <div className="text-sm text-neutral-500 dark:text-white">{department.description}</div>
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -214,7 +214,7 @@ const Department = () => {
                                         <select
                                             value={editForm.header}
                                             onChange={(e) => handleInputChange(e, 'header')}
-                                            className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                            className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         >
                                             <option value="">Select Header</option>
                                             {users.map(user => (
@@ -222,7 +222,7 @@ const Department = () => {
                                             ))}
                                         </select>
                                     ) : (
-                                        <div className="text-sm text-gray-500 dark:text-white">{department.header?.name}</div>
+                                        <div className="text-sm text-neutral-500 dark:text-white">{department.header?.name}</div>
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -263,16 +263,16 @@ const Department = () => {
                             </tr>
                         ))}
                         {isAdding && (
-                            <tr className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <input
                                         type="text"
                                         value={newDepartment.name}
                                         onChange={(e) => handleNewDepartmentChange(e, 'name')}
-                                        className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         placeholder='Department Name'
                                     />
                                 </td>
@@ -281,7 +281,7 @@ const Department = () => {
                                         type="text"
                                         value={newDepartment.description}
                                         onChange={(e) => handleNewDepartmentChange(e, 'description')}
-                                        className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         placeholder='Description'
                                     />
                                 </td>
@@ -289,7 +289,7 @@ const Department = () => {
                                     <select
                                         value={newDepartment.header}
                                         onChange={(e) => handleInputChange(e, 'header')}
-                                        className='w-full px-2 py-1 border dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded'
+                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                     >
                                         <option value="">Select Header</option>
                                         {users.map(user => (
@@ -319,15 +319,15 @@ const Department = () => {
                 </table>
                 <div className="px-6 py-4 flex items-center justify-between border-t">
                     <div>
-                        <p className="text-sm text-gray-700">
+                        <p className="text-sm text-neutral-700">
                             Showing <span className="font-medium">1</span> to <span className="font-medium">5</span> of <span className="font-medium">5</span> results
                         </p>
                     </div>
                     <div className="flex space-x-2">
-                        <button className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
                             Previous
                         </button>
-                        <button className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
                             Next
                         </button>
                     </div>

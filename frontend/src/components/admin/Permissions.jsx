@@ -112,15 +112,15 @@ const Permissions = () => {
             )}
 
             {permissionsMatrix && (
-                <div className='overflow-x-auto'>
-                    <table className='min-w-full bg-white border border-gray-200 dark:border-gray-700'>
-                        <thead>
-                            <tr className='bg-gray-100 dark:bg-gray-800'>
-                                <th className='px-6 py-3 border-b border-gray-200 text-left text-xs font-medium text-gray-600 uppercase tracking-wider dark:border-gray-700'>
+                <div className='overflow-x-auto p-4 rounded'>
+                    <table className='min-w-full bg-neutral-100 shadow-lg border-neutral-200 dark:border-neutral-700 rounded-lg'>
+                        <thead className='rounded-lg'>
+                            <tr className='bg-neutral-100 dark:bg-neutral-800'>
+                                <th className='px-6 py-3 border-b border-neutral-200 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider dark:border-neutral-700'>
                                     Role
                                 </th>
                                 {permissionsMatrix.permissions.map(permission => (
-                                    <th key={permission} className='px-6 py-3 border-b border-gray-200 text-left text-xs font-medium text-gray-600 uppercase tracking-wider dark:border-gray-700'>
+                                    <th key={permission} className='px-6 py-3 border-b border-neutral-200 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider dark:border-neutral-700'>
                                         {permission}
                                     </th>
                                 ))}
@@ -128,12 +128,12 @@ const Permissions = () => {
                         </thead>
                         <tbody>
                             {permissionsMatrix.roles.map(role => (
-                                <tr key={role.id} className='bg-white dark:bg-gray-800'>
-                                    <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white'>
+                                <tr key={role.id} className='bg-white dark:bg-neutral-800'>
+                                    <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-900 dark:text-white'>
                                         {role.name}
                                     </td>
                                     {permissionsMatrix.permissions.map(permission => (
-                                        <td key={`${role.id}-${permission}`} className='px-6 py-4 whitespace-nowrap text-sm text-gray-500'>
+                                        <td key={`${role.id}-${permission}`} className='px-6 py-4 whitespace-nowrap text-sm text-neutral-500'>
                                             <label className='inline-flex items-center cursor-pointer'>
                                                 <input
                                                     type='checkbox'
@@ -152,7 +152,7 @@ const Permissions = () => {
             )}
             <button
                 onClick={fetchPermissionsMatrix}
-                className='mt-6 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-300'
+                className='mt-6 ml-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-300'
             >
                 Refresh Permission
             </button>
