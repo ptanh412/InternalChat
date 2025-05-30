@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Encryption Test</title>
+</head>
+<body>
+    <h1>Frontend Encryption Test</h1>
+    <div id="results"></div>
+    
+    <script type="module">
+        // Simple version of the encryption service for testing
+        class TestEncryptionService {
+            constructor() {
+                this.algorithm = 'AES-GCM';
+                this.keyLength = 256;
+            }
+
+            async generateConversationKey(conversationId, masterSecret = '3AcMfYHVi1') {
+                const encoder = new TextEncoder();
+                const data = encoder.encode(conversationId.toString());
+                const key = encoder.encode(masterSecret);
+                
+                const cryptoKey = await window.crypto.subtle.importKey(
+                    'raw',
+                    key,
+                    { name: 'PBKDF2' },
+                    false,
+                    ['deriveKey']
+                );
+                
+                return await window.crypto.subtle.deriveKey(
+                    {
+                        name: 'PBKDF2',
+                        salt: data,
+                        iterations: 100000,
+                        hash: 'SHA-256'
+                    },
+                    cryptoKey,
+                    {
+                        name: this.algorithm,
+                        length: this.keyLength
+                    },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            }
+
+            async decryptMessage(encryptedContent, conversationId) {
+                try {
+                    if (!encryptedContent) return encryptedContent;
+                    
+                    if (!/^[0-9a-fA-F]+$/.test(encryptedContent)) {
+                        return encryptedContent;
+                    }
+                    
+                    const key = await this.generateConversationKey(conversationId);
+                    
+                    const encryptedData = new Uint8Array(
+                        encryptedContent.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+                    );
+                    
+                    const iv = encryptedData.slice(0, 12);
+                    const ciphertext = encryptedData.slice(12);
+                    
+                    const decrypted = await window.crypto.subtle.decrypt(
+                        {
+                            name: this.algorithm,
+                            iv: iv
+                        },
+                        key,
+                        ciphertext
+                    );
+                    
+                    const decoder = new TextDecoder();
+                    return decoder.decode(decrypted);
+                } catch (error) {
+                    console.error('Decryption error:', error);
+                    return encryptedContent;
+                }
+            }
+        }
+
+        async function testDecryption() {
+            const service = new TestEncryptionService();
+            const resultsDiv = document.getElementById('results');
+            
+            // Test with the encrypted message from backend
+            const encryptedMessage = '962b84efdbc489ce9a2f456a309b17b0099f5aaa4bcab31ef3d83a1577eeb137d662d609b5d663147d20c878f96fe44802b51210e6509ae95e5cc4ae68418';
+            const conversationId = '507f1f77bcf86cd799439011';
+            
+            resultsDiv.innerHTML += '<p>Testing frontend decryption...</p>';
+            resultsDiv.innerHTML += `<p>Encrypted: ${encryptedMessage}</p>`;
+            
+            try {
+                const decrypted = await service.decryptMessage(encryptedMessage, conversationId);
+                resultsDiv.innerHTML += `<p>Decrypted: ${decrypted}</p>`;
+                
+                const expectedMessage = 'Hello, this is a test message!';
+                const success = decrypted === expectedMessage;
+                resultsDiv.innerHTML += `<p style="color: ${success ? 'green' : 'red'}">Success: ${success}</p>`;
+                
+                if (!success) {
+                    resultsDiv.innerHTML += `<p style="color: red">Expected: ${expectedMessage}</p>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML += `<p style="color: red">Error: ${error.message}</p>`;
+            }
+        }
+
+        testDecryption();
+    </script>
+</body>
+</html>

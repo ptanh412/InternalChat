@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { MdAdd, MdEdit, MdDelete, MdSave, MdCancel } from 'react-icons/md';
 import axios from 'axios';
+import { useAlert } from '../../context/AlertContext'
+
 const Department = () => {
+    const { showAlert } = useAlert();
     const [departments, setDepartments] = useState([]);
     const [editingId, setEditingId] = useState(null);
     const [isAdding, setIsAdding] = useState(false);
@@ -76,11 +79,13 @@ const Department = () => {
                         } : null
                     } : dept
                 );
-
+                showAlert("Department updated successfully", "success");
+                await fetchData();
                 setDepartments(updatedDepts);
                 setEditingId(null);
             }
         } catch (error) {
+            showAlert("Error updating department", "error");
             console.error(error);
         }
     }
@@ -99,7 +104,7 @@ const Department = () => {
 
     const handleSaveNew = async () => {
         try {
-            const dataToSend = {...newDepartment};
+            const dataToSend = { ...newDepartment };
 
             if (!dataToSend.header) {
                 delete dataToSend.header;
@@ -119,6 +124,7 @@ const Department = () => {
                     }
                 };
                 await fetchData();
+                showAlert("Department created successfully", "success");
                 setDepartments([...departments, createdDept]);
                 setIsAdding(false);
             }
@@ -153,15 +159,15 @@ const Department = () => {
                 </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-neutral-800">
-                <div className="p-4 border-b dark:border-neutral-700">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700">
+                <div className="p-4 border-b border-indigo-100 dark:border-slate-700 bg-indigo-50 dark:bg-slate-800">
                     <div className="flex items-center space-x-4">
                         <input
                             type="text"
-                            className="pl-4 pr-4 py-2 rounded-lg border border-neutral-300 dark:bg-neutral-700 dark:border-neutral-500 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
+                            className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                             placeholder="Search accounts..."
                         />
-                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:text-white border-neutral-300 dark:bg-neutral-700 dark:border-neutral-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
+                        <select className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white">
                             <option value="">All Departments</option>
                             {departments.map(department => (
                                 <option key={department._id} value={department._id}>{department.name}</option>
@@ -169,21 +175,21 @@ const Department = () => {
                         </select>
                     </div>
                 </div>
-                <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
-                    <thead className="bg-neutral-50 dark:bg-neutral-800 dark:border-neutral-500">
+                <table className="min-w-full divide-y divide-indigo-100 dark:divide-slate-700">
+                    <thead className="bg-indigo-50 dark:bg-slate-700">
                         <tr className='dark:border-neutral-700'>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider ">ID</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Name</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Description</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Header</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Actions</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">ID</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Name</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Description</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Header</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-neutral-200 dark:divide-neutral-500 dark:bg-neutral-800">
+                    <tbody className="bg-white divide-y divide-indigo-100 dark:divide-slate-600 dark:bg-slate-800">
                         {departments.map((department, index) => (
-                            <tr key={department._id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
+                            <tr key={department._id} className="hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors duration-150">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">{index + 1}</div>
+                                    <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{index + 1}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     {editingId === department._id ? (
@@ -206,7 +212,7 @@ const Department = () => {
                                             className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
                                         />
                                     ) : (
-                                        <div className="text-sm text-neutral-500 dark:text-white">{department.description}</div>
+                                        <div className="text-sm  text-indigo-800 dark:text-indigo-200">{department.description}</div>
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -263,16 +269,16 @@ const Department = () => {
                             </tr>
                         ))}
                         {isAdding && (
-                            <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
+                            <tr className="hover:bg-indigo-50 dark:hover:bg-slate-700 bg-indigo-50/40 dark:bg-slate-700/40 transition-colors duration-150">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200">New</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <input
                                         type="text"
                                         value={newDepartment.name}
                                         onChange={(e) => handleNewDepartmentChange(e, 'name')}
-                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
+                                        className="w-full px-3 py-2 border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-indigo-800 dark:text-white outline-none"
                                         placeholder='Department Name'
                                     />
                                 </td>
@@ -281,7 +287,7 @@ const Department = () => {
                                         type="text"
                                         value={newDepartment.description}
                                         onChange={(e) => handleNewDepartmentChange(e, 'description')}
-                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
+                                        className="w-full px-3 py-2 border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-indigo-800 dark:text-white outline-none"
                                         placeholder='Description'
                                     />
                                 </td>
@@ -289,7 +295,7 @@ const Department = () => {
                                     <select
                                         value={newDepartment.header}
                                         onChange={(e) => handleInputChange(e, 'header')}
-                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
+                                        className="w-full px-3 py-2 border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-indigo-800 dark:text-white outline-none"
                                     >
                                         <option value="">Select Header</option>
                                         {users.map(user => (
@@ -317,17 +323,17 @@ const Department = () => {
                         )}
                     </tbody>
                 </table>
-                <div className="px-6 py-4 flex items-center justify-between border-t">
+                <div className="px-6 py-4 flex items-center justify-between border-t border-indigo-100 dark:border-slate-700 bg-indigo-50/50 dark:bg-slate-800">
                     <div>
-                        <p className="text-sm text-neutral-700">
+                        <p className="text-sm text-indigo-700 dark:text-indigo-200">
                             Showing <span className="font-medium">1</span> to <span className="font-medium">5</span> of <span className="font-medium">5</span> results
                         </p>
                     </div>
                     <div className="flex space-x-2">
-                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
+                        <button className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm">
                             Previous
                         </button>
-                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
+                        <button className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm">
                             Next
                         </button>
                     </div>

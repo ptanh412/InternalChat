@@ -1,8 +1,10 @@
 import axios from "axios";
 import { useState } from "react";
 import { MdClose, MdOutlineVpnKey } from "react-icons/md";
+import { useAlert } from '../../context/AlertContext'
 
 const ChangePassword = ({ onClose }) => {
+    const {showAlert} = useAlert();
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -16,14 +18,17 @@ const ChangePassword = ({ onClose }) => {
         setSuccess('');
 
         if (!currentPassword || !newPassword || !confirmPassword) {
+            showAlert('All fields are required', 'error');
             setError('All fields are required');
             return;
         }
         if (newPassword !== confirmPassword) {
+            showAlert('New password and confirm password do not match', 'error');
             setError('New password and confirm password do not match');
             return;
         }
         if (newPassword.length < 6) {
+            showAlert('New password must be at least 6 characters long', 'error');
             setError('New password must be at least 6 characters long');
             return;
         }
@@ -39,6 +44,7 @@ const ChangePassword = ({ onClose }) => {
                 }
             });
             if (response.data.success) {
+                showAlert(response.data.message, 'success');
                 setSuccess(response.data.message);
 
                 setCurrentPassword('');
@@ -52,6 +58,7 @@ const ChangePassword = ({ onClose }) => {
         } catch (error) {
             console.error('Error changing password:', error);
             setError('Failed to change password. Please try again later.');
+            showAlert('Failed to change password. Please try again later.', 'error');
         } finally {
             setLoading(false);
         }

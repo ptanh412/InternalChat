@@ -2,8 +2,10 @@ import axios from 'axios';
 import React, { useEffect, useState } from 'react';
 import { MdAdd, MdEdit, MdDelete, MdSave, MdCancel } from 'react-icons/md';
 import { Link } from 'react-router-dom';
+import { useAlert } from '../../context/AlertContext'
 
 const Roles = () => {
+    const {showAlert} = useAlert();
     const [roles, setRoles] = useState([]);
     const [isAdding, setIsAdding] = useState(false);
     const [newRole, setNewRole] = useState({
@@ -58,11 +60,12 @@ const Roles = () => {
             });
 
             if (response.data.success) {
+                showAlert("Role added successfully", "success");
                 await fetchRoles();
-                // setRoles([...roles, response.data.data]);
                 setIsAdding(false);
             }
         } catch (error) {
+            showAlert("Failed to add role", "error");
             console.error(error);
         }
     }
@@ -118,25 +121,27 @@ const Roles = () => {
     return (
         <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold dark:text-white">Roles Manger </h1>
+                <h1 className="text-2xl font-bold text-indigo-800 dark:text-indigo-200">Roles Manager</h1>
                 <button
-                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors duration-300"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300 shadow-md hover:shadow-lg"
                     onClick={handleAddNew}
                 >
-                    <MdAdd />
+                    <MdAdd className="text-xl" />
                     <span>Add New Role</span>
                 </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md overflow-hidden dark:bg-neutral-800">
-                <div className="p-4 border-b dark:border-neutral-700">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700">
+                <div className="p-4 border-b border-indigo-100 dark:border-slate-700 bg-indigo-50 dark:bg-slate-800">
                     <div className="flex items-center space-x-4">
-                        <input
-                            type="text"
-                            className="pl-4 pr-4 py-2 rounded-lg border dark:text-white dark:bg-neutral-700 dark:border-neutral-600 border-neutral-300 outline-none w-64 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
-                            placeholder="Search accounts..."
-                        />
-                        <select className="pl-4 pr-4 py-2 rounded-lg border dark:bg-neutral-700 dark:border-neutral-600 dark:text-white border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                placeholder="Search roles..."
+                            />
+                        </div>
+                        <select className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white">
                             <option value="">All Roles</option>
                             {roles.map(role => (
                                 <option key={role._id} value={role._id}>{role.name}</option>
@@ -144,39 +149,42 @@ const Roles = () => {
                         </select>
                     </div>
                 </div>
-                <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
-                    <thead className="bg-neutral-50 dark:bg-neutral-800 dark:border-neutral-500">
+                <table className="min-w-full divide-y divide-indigo-100 dark:divide-slate-700">
+                    <thead className="bg-indigo-50 dark:bg-slate-700">
                         <tr>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">ID</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Role Name</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Permission</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Update At</th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Actions</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">ID</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Role Name</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Permission</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Updated At</th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-neutral-200 dark:divide-neutral-500 dark:bg-neutral-800">
+                    <tbody className="bg-white divide-y divide-indigo-100 dark:divide-slate-600 dark:bg-slate-800">
                         {roles.map((role, index) => (
-                            <tr key={role._id || `role-${index}`} className="hover:bg-neutral-50 dark:hover:bg-neutral-700 dark:text-white">
+                            <tr key={role._id || `role-${index}`} className="hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors duration-150">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">{index + 1}</div>
+                                    <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{index + 1}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-neutral-500 dark:text-white">{role.name || 'N/A'}</div>
+                                    <div className="text-sm text-indigo-700 dark:text-indigo-100">{role.name || 'N/A'}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-neutral-500 dark:text-white">
+                                    <div className="text-sm text-indigo-600 dark:text-indigo-300">
                                         {formatPermissions(role.permissions)}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-neutral-500 dark:text-white">{formatDate(role.updatedAt)}</div>
+                                    <div className="text-sm text-indigo-600 dark:text-indigo-300">{formatDate(role.updatedAt)}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <div className="flex space-x-2">
-                                        <Link className="text-blue-600 hover:text-blue-900" to={'/permissions'}>
+                                    <div className="flex space-x-3">
+                                        <Link 
+                                            className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200 p-1 hover:bg-indigo-100 dark:hover:bg-slate-600 rounded-full transition-colors" 
+                                            to={'/permissions'}
+                                        >
                                             <MdEdit className="text-xl" />
                                         </Link>
-                                        <button className="text-red-600 hover:text-red-900">
+                                        <button className="text-rose-600 hover:text-rose-900 dark:text-rose-400 dark:hover:text-rose-300 p-1 hover:bg-rose-100 dark:hover:bg-slate-600 rounded-full transition-colors">
                                             <MdDelete className="text-xl" />
                                         </button>
                                     </div>
@@ -184,79 +192,79 @@ const Roles = () => {
                             </tr>
                         ))}
                         {isAdding && (
-                            <tr className="hover:bg-neutral-50 dark:hover:bg-neutral-700">
+                            <tr className="hover:bg-indigo-50 dark:hover:bg-slate-700 bg-indigo-50/40 dark:bg-slate-700/40 transition-colors duration-150">
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200">New</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <input
                                         type="text"
                                         value={newRole.name}
                                         onChange={(e) => handleNewRoleChange(e, 'name')}
-                                        className='w-full px-2 py-1 border dark:bg-neutral-800 dark:border-neutral-600 dark:text-white rounded'
-                                        placeholder='Role Name'
+                                        className="w-full px-3 py-2 border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-indigo-800 dark:text-white outline-none"
+                                        placeholder="Role Name"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className='space-y-2'>
-                                        <div className='flex items-center'>
+                                <td className="px-6 py-4">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center">
                                             <input
                                                 type="checkbox"
-                                                id='createGroup'
+                                                id="createGroup"
                                                 checked={newRole.permissionData.createGroup}
                                                 onChange={() => handlePermissionChange('createGroup')}
-                                                className='mr-2'
+                                                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 rounded"
                                             />
-                                            <label htmlFor='createGroup' className='text-sm text-neutral-700 dark:text-white'>Create Group</label>
+                                            <label htmlFor="createGroup" className="text-sm text-indigo-700 dark:text-indigo-200">Create Group</label>
                                         </div>
-                                        <div className='flex items-center'>
+                                        <div className="flex items-center">
                                             <input
                                                 type="checkbox"
-                                                id='createDepartment'
+                                                id="createDepartment"
                                                 checked={newRole.permissionData.createDepartment}
                                                 onChange={() => handlePermissionChange('createDepartment')}
-                                                className='mr-2'
+                                                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 rounded"
                                             />
-                                            <label htmlFor='createDepartment' className='text-sm text-neutral-700 dark:text-white'>Create Department</label>
+                                            <label htmlFor="createDepartment" className="text-sm text-indigo-700 dark:text-indigo-200">Create Department</label>
                                         </div>
-                                        <div className='flex items-center'>
+                                        <div className="flex items-center">
                                             <input
                                                 type="checkbox"
-                                                id='manageDepartment'
+                                                id="manageDepartment"
                                                 checked={newRole.permissionData.manageDepartment}
                                                 onChange={() => handlePermissionChange('manageDepartment')}
-                                                className='mr-2'
+                                                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 rounded"
                                             />
-                                            <label htmlFor='manageDepartment' className='text-sm text-neutral-700 dark:text-white'>Manage Department</label>
+                                            <label htmlFor="manageDepartment" className="text-sm text-indigo-700 dark:text-indigo-200">Manage Department</label>
                                         </div>
-                                        <div className='flex items-center'>
+                                        <div className="flex items-center">
                                             <input
                                                 type="checkbox"
-                                                id='manageUsers'
+                                                id="manageUsers"
                                                 checked={newRole.permissionData.manageUsers}
                                                 onChange={() => handlePermissionChange('manageUsers')}
-                                                className='mr-2'
+                                                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 rounded"
                                             />
-                                            <label htmlFor='manageUsers' className='text-sm text-neutral-700 dark:text-white'>Mange User</label>
+                                            <label htmlFor="manageUsers" className="text-sm text-indigo-700 dark:text-indigo-200">Manage Users</label>
                                         </div>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-neutral-900 dark:text-white">New</div>
+                                    <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200">Just now</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <div className="flex space-x-2">
+                                    <div className="flex space-x-3">
                                         <button
                                             onClick={handleSaveNew}
-                                            className='text-green-600 hover:text-green-900'
+                                            className="text-emerald-600 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-300 p-1 hover:bg-emerald-100 dark:hover:bg-slate-600 rounded-full transition-colors"
                                         >
-                                            <MdSave className='text-xl' />
+                                            <MdSave className="text-xl" />
                                         </button>
                                         <button
                                             onClick={handleCancelAdd}
-                                            className='text-red-600 hover:text-red-900'
+                                            className="text-rose-600 hover:text-rose-900 dark:text-rose-400 dark:hover:text-rose-300 p-1 hover:bg-rose-100 dark:hover:bg-slate-600 rounded-full transition-colors"
                                         >
-                                            <MdCancel className='text-xl' />
+                                            <MdCancel className="text-xl" />
                                         </button>
                                     </div>
                                 </td>
@@ -264,17 +272,17 @@ const Roles = () => {
                         )}
                     </tbody>
                 </table>
-                <div className="px-6 py-4 flex items-center justify-between border-t dark:border-neutral-700">
+                <div className="px-6 py-4 flex items-center justify-between border-t border-indigo-100 dark:border-slate-700 bg-indigo-50/50 dark:bg-slate-800">
                     <div>
-                        <p className="text-sm text-neutral-700 dark:text-white">
+                        <p className="text-sm text-indigo-700 dark:text-indigo-200">
                             Showing <span className="font-medium">1</span> to <span className="font-medium">5</span> of <span className="font-medium">5</span> results
                         </p>
                     </div>
                     <div className="flex space-x-2">
-                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
+                        <button className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm">
                             Previous
                         </button>
-                        <button className="px-4 py-2 border border-neutral-300 rounded-md text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50">
+                        <button className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm">
                             Next
                         </button>
                     </div>

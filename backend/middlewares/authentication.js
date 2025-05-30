@@ -14,7 +14,6 @@ const authentication = async (req, res, next) => {
 
 		const decode = verifyToken(token);
 		const user = await Users.findById(decode.userId).populate('role');
-
 		if (!user){
 			return res.status(401).json({
 				success: false,

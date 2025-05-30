@@ -4,60 +4,60 @@ import { MdOutlineEmail, MdLock } from 'react-icons/md';
 import { FaCheckCircle, FaExclamationCircle } from 'react-icons/fa';
 import { useUser } from '../context/UserContext'; // Adjust the path as needed
 import logoImage from '../assets/chat.png'; // Replace with your actual logo path
+import { useAlert } from '../context/AlertContext'
 
 const Login = () => {
   const { login } = useUser();
-//   const { alertMessage, alertType, showAlert } = useContext(AlertContext);
+  const { showAlert, navigateWithAlert } = useAlert();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const navigation = useNavigate();
+
+  const formatEmail = (value) => {
+    if (value === "1050080043") {
+      return `${value}@sv.hcmunre.edu.vn`;
+    } else {
+      return `${value}@gmail.com`;
+    }
+  }
 
   const handleLogin = async (e) => {
-	e.preventDefault();
-	setIsLoading(true);
-	try {
-		const result = await login(email, password);
+    e.preventDefault();
+    setIsLoading(true);
+    const formattedEmail = formatEmail(email.trim().toLowerCase());
+    try {
+      const result = await login(formattedEmail, password);
 
-		if (result.success) {
-			// showAlert(result.message, "success");
-
-			if (result.isAdmin) {
-				navigation("/admin-home");
-			}else{
-				navigation("/chat")
-			}
-
-		} else {
-			// showAlert("Invalid email or password", "error");
-		}
-	} catch (error) {
-		console.log(error);
-		showAlert("Error", "error");
-	}
-}
+      if (result.success) {
+        if (result.isAdmin) {
+          navigateWithAlert("/admin-home", "Login Successful!", "success");
+        } else {
+          if (result.user.active === true) {
+            navigateWithAlert("/chat", "Login Successful!", "success");
+          } else {
+            showAlert("Your account is inactive. Please contact the administrator.", "error");
+            navigateWithAlert("/login", "Login Failed!", "error");
+          }
+          // navigateWithAlert("/chat", "Login Successful!", "success");
+        }
+      } else {
+        showAlert("Invalid email or password", "error");
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.log(error);
+      showAlert("Error connecting to the server", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-black to-gray-700 text-white">
       {/* Alert Message */}
       {/* {alertMessage && (
-        <div 
-          className={`fixed top-4 left-1/2 transform -translate-x-1/2 py-2 px-4 rounded-lg shadow-lg z-50 flex items-center space-x-2 ${
-            alertType === 'success' 
-              ? "bg-green-50 border-l-4 border-green-500 text-green-700" 
-              : "bg-red-50 border-l-4 border-red-500 text-red-700"
-          } animate-fade-in-down`}
-          role="alert"
-        >
-          {alertType === 'success' ? (
-            <FaCheckCircle className="text-green-500 text-lg" />
-          ) : (
-            <FaExclamationCircle className="text-red-500 text-lg" />
-          )}
-          <span className="text-sm font-medium">{alertMessage}</span>
-        </div>
-      )} */}
+      
 
       {/* Login Card */}
       <div className="max-w-md w-full mx-4 rounded-2xl shadow-2xl overflow-hidden from-black to-purple-900">
@@ -72,9 +72,9 @@ const Login = () => {
         </div>
 
         {/* Login Form */}
-		<div>
-			
-		</div>
+        <div>
+
+        </div>
         <form className="p-8" onSubmit={handleLogin}>
           <div className="space-y-6">
             {/* Email Field */}
@@ -86,7 +86,7 @@ const Login = () => {
                 </div>
                 <input
                   id="email"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -137,13 +137,12 @@ const Login = () => {
             {/* Login Button */}
             <button
               type="submit"
-			  onClick={handleLogin}
+              onClick={handleLogin}
               disabled={isLoading}
-              className={`w-full py-3 px-4 flex justify-center items-center rounded-lg text-white font-medium transition-all duration-300 ${
-                isLoading 
-                  ? "bg-blue-400 cursor-not-allowed" 
-                  : "bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 shadow-md hover:shadow-lg transition-colors duration-500"
-              }`}
+              className={`w-full py-3 px-4 flex justify-center items-center rounded-lg text-white font-medium transition-all duration-300 ${isLoading
+                ? "bg-blue-400 cursor-not-allowed"
+                : "bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 shadow-md hover:shadow-lg transition-colors duration-500"
+                }`}
             >
               {isLoading ? (
                 <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -154,10 +153,9 @@ const Login = () => {
               {isLoading ? "Signing In..." : "Sign In"}
             </button>
 
-            {/* Register Link */}
             <div className="text-center mt-4">
               <span className="text-sm text-gray-600">Forgot Password? </span>
-              <Link to="/register" className="text-sm font-medium text-purple-600 hover:text-purple-800 transition-colors">
+              <Link to="/forgot-password" className="text-sm font-medium text-purple-600 hover:text-purple-800 transition-colors">
                 Click here
               </Link>
             </div>

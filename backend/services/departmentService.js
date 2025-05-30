@@ -115,10 +115,50 @@ const getDepartment = async () =>{
 		throw error;
 	}
 }
+const getDepartmentMembers = async (departmentId) =>{
+	try{
+		const department = await Department.findById(departmentId);
+		if (!department) throw new Error('Department not found');
 
+		const members = await Users.find({department: departmentId})
+		.select('name email employeeId avatar position phoneNumber address status lastActive');
+		return members;
+	}catch(error){
+		throw error;
+	}
+}
+const getDepartmentMemberDetails = async (memberId) =>{
+	try{
+		console.log(memberId);
+		const member = await Users.findById(memberId)
+		.select('-password -resetPasswordToken -resetPasswordExpires -__v')
+		.populate('department', 'name');
+		if (!member) throw new Error('Member not found');
+		return member;
+	}catch(error){
+		throw error;
+	}
+}
+
+const getCurrentUserDepartment = async (userId) =>{
+	try{
+		const user = await Users.findById(userId).populate('department', 'name');
+		if (!user) throw new Error('User not found');
+
+		const department = await Department.findById(user.department._id)
+		.populate('header', 'name position')
+		.populate('deputyHeader', 'name position');
+		return department;
+	}catch(error){
+		throw error;
+	}
+}
 module.exports = {
 	createDepartment,
 	updateDepartment,
 	deleteDepartment,
-	getDepartment
+	getDepartment,
+	getDepartmentMembers,
+	getDepartmentMemberDetails,
+	getCurrentUserDepartment
 }

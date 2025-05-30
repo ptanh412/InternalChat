@@ -1,14 +1,26 @@
 import React, { createContext, useContext, useState, useEffect, use } from "react";
 import { io } from "socket.io-client";
 import axios from "axios";
+import { useAlert } from "./AlertContext";
+import { useNavigate } from "react-router-dom";
+import { useDialog } from "./DialogContext ";
 
 const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
-    const [user, setUser] = useState([]);
+    const [user, setUser] = useState(null);
     const [socket, setSocket] = useState(null);
     const [loading, setLoading] = useState(true);
     const [onlineUsers, setOnlineUsers] = useState({});
+    const { showAlert } = useAlert();
+    const navigate = useNavigate();
+
+    let dialogContext = null;
+    try {
+        dialogContext = useDialog();
+    } catch (error) {
+        console.error("Dialog context not found", error);
+    }
 
     useEffect(() => {
         const storedUser = localStorage.getItem("userData");
@@ -26,6 +38,7 @@ export const UserProvider = ({ children }) => {
                 console.error("Error getting user data", error);
                 localStorage.removeItem("userData");
                 localStorage.removeItem("token");
+                setUser(null);
             }
         };
 
@@ -45,35 +58,79 @@ export const UserProvider = ({ children }) => {
         });
 
         newSocket.on('connect', () => {
-            console.log("Socket connected");
+            // console.log("Socket connected");
+            newSocket.emit('get:user-status');
         });
 
         newSocket.on('user:status', (data) => {
+            // console.log('user:status event received', data);
             setOnlineUsers(prev => ({
                 ...prev,
                 [data.userId]: data.status
             }))
 
-            if (data.userId === user._id) {
-                const userData = JSON.parse(localStorage.getItem("userData"));
+            if (data.userId === user?._id) {
+                updateUserData({ status: data.status });
+            }
+        });
 
-                if (userData) {
-                    userData.status = data.status;
-                    localStorage.setItem("userData", JSON.stringify(userData));
+        newSocket.on('user:status-bulk', (data) => {
+            const newStatus = {};
+            data.forEach(user => {
+                newStatus[user.userId] = user.status;
+            });
+
+            setOnlineUsers(prev => ({
+                ...prev,
+                ...newStatus
+            }))
+        })
+
+        newSocket.on('account:deactivated', (data) => {
+            console.log('account:deactivated event received', data);
+            updateUserData({ active: false });
+            setOnlineUsers(prev => ({
+                ...prev,
+                [data.userId]: data.active ? "online" : "offline"
+            }))
+            if (dialogContext) {
+                dialogContext.showDialog({
+                    title: data.active ? "Account Deactivated" : "Account Reactivated",
+                    message: data.message,
+                    onConfirm: () => {
+                        if (!data.active) {
+                            logout();
+                            navigate("/login"); // Redirect to home instead of login
+                        } else {
+                            dialogContext.hideDialog();
+                        }
+                    },
+                })
+            } else {
+                showAlert(data.message, data.active ? "success" : "error");
+                if (!data.active) {
+                    if (window.confirm(data.message)) {
+                        logout();
+                        navigate("/login"); // Redirect to home instead of login
+                    } else {
+                        logout();
+                        navigate("/login"); // Redirect to home instead of login
+                    }
                 }
             }
         });
+
         newSocket.on('user:updated', (data) => {
             console.log('user:updated event received', data);
-            const userId  = data.userId;
+            const userId = data.userId;
             const updatedFields = data.updateFields;
-            if (userId === user._id) {
+            if (userId === user?._id) {
                 updateUserData(updatedFields);
             }
         })
 
         newSocket.on('user:status-success', (data) => {
-            if (data.user && data.user._id === user._id) {
+            if (data.user && data.user._id === user?._id) {
                 updateUserData(data.user);
             }
         })
@@ -83,6 +140,15 @@ export const UserProvider = ({ children }) => {
         newSocket.connect();
         setSocket(newSocket);
         return newSocket;
+    }
+    const updateUserData = (updatedFields) => {
+        setUser(prev => ({ ...prev, ...updatedFields }));
+
+        const storedUser = JSON.parse(localStorage.getItem("userData"));
+        if (storedUser) {
+            const updatedUser = { ...storedUser, ...updatedFields };
+            localStorage.setItem("userData", JSON.stringify(updatedUser));
+        }
     }
     const login = async (email, password) => {
         try {
@@ -145,31 +211,23 @@ export const UserProvider = ({ children }) => {
     };
 
     const getUserStatus = (userId) => {
-        if (userId === user._id) {
-            return user.status || "offline";
+        // console.log("Get user status", userId, user?._id, onlineUsers[userId]);
+
+        if (userId === user?._id) {
+            return user?.status || "offline";
         }
-        if (onlineUsers[userId]) {
+        if (onlineUsers[userId] !== undefined) {
             return onlineUsers[userId];
         }
         return "offline";
     };
 
-    // const updateUserData = (updatedFields) => {
-    //     if (!updatedFields || !user) return user;
-    //     try{
-    //         const userData = JSON.parse(localStorage.getItem("userData")) || user;
+    const refreshUserStatus = () => {
+        if (socket && socket.connected) {
+            socket.emit('get:user-status');
+        }
+    }
 
-    //         const updatedUser = {
-    //             ...userData,
-    //             ...updatedFields
-    //         };
-    //         localStorage.setItem("userData", JSON.stringify(updatedUser));
-    //         setUser(updatedUser);
-    //     }catch(error){
-    //         console.error("Error updating user data", error);
-    //     }
-    // }
-   
     const value = {
         user,
         setUser,
@@ -180,7 +238,7 @@ export const UserProvider = ({ children }) => {
         loading,
         getUserStatus,
         connectSocket,
-        // updateUserData,
+        refreshUserStatus,
     };
 
     return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

@@ -1,10 +1,13 @@
 import axios from 'axios';
 import React, { useEffect, useState } from 'react';
-import { MdAdd, MdDelete, MdEdit } from 'react-icons/md';
+import { MdAdd, MdDelete, MdEdit, MdLock, MdLockOpen } from 'react-icons/md';
 import { useUser } from '../../context/UserContext';
 import { useNavigate } from 'react-router-dom';
+import { useAlert } from '../../context/AlertContext'
 const Accounts = () => {
     const [accounts, setAccounts] = useState([]);
+    const { showAlert } = useAlert();
+
     const [filteredAccounts, setFilteredAccounts] = useState([]);
     const { getUserStatus, onlineUsers } = useUser();
     const navigate = useNavigate();
@@ -18,7 +21,7 @@ const Accounts = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalUsers, setTotalUsers] = useState(0);
-    const [usersPerPage, setUsersPerPage] = useState(5);
+    const [usersPerPage, setUsersPerPage] = useState(10);
 
     const positions = ['Director', 'Deputy Director', 'Secretary', 'Department Head', 'Deputy Department', 'Project Leader', 'Administrator', 'Employee'];
 
@@ -141,6 +144,32 @@ const Accounts = () => {
         navigate(`/accounts/edit-account/${accountId}`);
     }
 
+    const handleToggleActive = async (accountId, currentActive) => {
+        try {
+            const response = await axios.put(`http://localhost:5000/api/auth/toggle-active/${accountId}`, {}, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            if (response.data.success) {
+                setAccounts(accounts.map(account => {
+                    if (account._id === accountId) {
+                        return { ...account, active: !currentActive };
+                    }
+                    return account;
+                }));
+                showAlert(
+                    `Account ${currentActive ? 'deactivated' : 'activated'} successfully`,'success'
+                );
+            } else {
+                showAlert(response.data.message, "error");
+            }
+        } catch (error) {
+            console.log("error");
+            showAlert("Error updating account status", "error");
+        }
+    }
+
     const handleDeleteClick = async (accountId) => {
         if (window.confirm('Are you sure you want to delete this account?')) {
             try {
@@ -152,8 +181,10 @@ const Accounts = () => {
                 if (response.data.success) {
                     setAccounts(accounts.filter(account => account._id !== accountId));
                 }
+                showAlert(response.data.message, "success");
             } catch (error) {
                 console.log("error");
+                showAlert("Error deleting account", "error");
             }
         }
     }
@@ -173,11 +204,11 @@ const Accounts = () => {
     const sortedAccounts = [...displayedAccounts].sort((a, b) => {
         return new Date(a.createdAt) - new Date(b.createdAt);
     });
-    
+
     return (
         <div className='p-6'>
             <div className='flex justify-between items-center mb-10'>
-                <h1 className='font-bold text-2xl dark:text-white'>User accounts</h1>
+                <h1 className="text-2xl font-bold text-indigo-800 dark:text-indigo-200">User accounts</h1>
                 <button
                     className='flex items-center space-x-2 bg-blue-500 text-white px-4 py-2 rounded-lg'
                     onClick={handleAddClick}
@@ -187,18 +218,18 @@ const Accounts = () => {
                 </button>
             </div>
 
-            <div className='bg-white rounded-lg shadow-md overflow-hidden dark:bg-neutral-800'>
-                <div className='p-4 border-b dark:border-neuneutral-700'>
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700">
+                <div className="p-4 border-b border-indigo-100 dark:border-slate-700 bg-indigo-50 dark:bg-slate-800">
                     <div className='flex items-center space-x-4'>
                         <input
                             type='text'
                             placeholder='Search accounts'
-                            className='pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700'
+                            className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                             value={searchTerm}
                             onChange={handleSearchChange}
                         />
                         <select
-                            className="pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                            className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                             value={statusFilter}
                             onChange={handleStatusFilterChange}
                         >
@@ -207,7 +238,7 @@ const Accounts = () => {
                             <option value='offline'>Inactive</option>
                         </select>
                         <select
-                            className="pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                            className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                             value={departmentFilter}
                             onChange={handleDepartmentFilterChange}
                         >
@@ -217,7 +248,7 @@ const Accounts = () => {
                             ))}
                         </select>
                         <select
-                            className="pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                            className="pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                             value={positionFilter}
                             onChange={handlePositionFilterChange}
                         >
@@ -228,67 +259,54 @@ const Accounts = () => {
                         </select>
                     </div>
                 </div>
-                <table className='min-w-full divide-y divide-neutral-200 darkneutral-800  dark:border-neutral-700 dark:divide-neutral-700'>
-                    <thead className='bg-neutral-50 dark:bg-neutral-800 dark:text-white dark:border-neutral-700'>
+                <table className="min-w-full divide-y divide-indigo-100 dark:divide-slate-700">
+                    <thead className="bg-indigo-50 dark:bg-slate-700">
                         <tr>
-                            <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider '>
+                            <th scope='col' className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                 ID
                             </th>
-                            {/* <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider '>
-                                Name
-                            </th> */}
-                            <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider'>
+                            <th scope='col' className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                 Email
                             </th>
-                            {/* <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider'>
-                                Role
-                            </th>
-                            <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider'>
-                                Department
-                            </th> */}
-                            <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider'>
+                            <th scope='col' className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                 Status
                             </th>
-                            <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider'>
+                            <th scope='col' className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
+                                Active
+                            </th>
+                            <th scope='col' className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                 Actions
                             </th>
                         </tr>
                     </thead>
-                    <tbody className='bg-white divide-y divide-neutral-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700 dark:divide-neutral-700 ' >
+                    <tbody className="bg-white divide-y divide-indigo-100 dark:divide-slate-600 dark:bg-slate-800" >
                         {sortedAccounts.map((account) => {
                             const status = getUserStatus(account._id);
                             const isOnline = status === 'online';
+                            const isActive = account.active !== undefined ? account.active : true;
+                            console.log(account.active);
                             return (
-                                <tr key={account._id} className='hover:bg-neutral-50 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-white'>
+                                <tr key={account._id} className="hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors duration-150">
                                     <td className='px-6 py-4 whitespace-nowrap font-bold'>
                                         <div className='text-sm  text-neutral-500 dark:text-white'>
                                             {account.employeeId}
                                         </div>
                                     </td>
-                                    {/* <td className='px-6 py-4 whitespace-nowrap dark:text-white'>
-                                        <div className='text-sm font-medium text-neutral-900 dark:text-white'>
-                                            {account.name}
-                                        </div>
-                                    </td> */}
                                     <td className='px-6 py-4 whitespace-nowrap'>
                                         <div className='text-sm  text-neutral-500 dark:text-white'>
                                             {account.email}
                                         </div>
                                     </td>
-                                    {/* <td className='px-6 py-4 whitespace-nowrap'>
-                                        <div className='text-sm  text-neutral-500 dark:text-white'>
-                                            {account.position}
-                                        </div>
-                                    </td>
-                                    <td className='px-6 py-4 whitespace-nowrap'>
-                                        <div className='text-sm  text-neutral-500 dark:text-white'>
-                                            {account.department.name}
-                                        </div>
-                                    </td> */}
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isOnline ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                                             }`}>
                                             {isOnline ? 'Online' : 'Offline'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                            {isActive ? 'Active' : 'Deactivated'}
                                         </span>
                                     </td>
                                     <td className='px-6 py-4 whitespace-nowrap'>
@@ -305,6 +323,13 @@ const Accounts = () => {
                                             >
                                                 <MdDelete className='text-xl' />
                                             </button>
+                                             <button
+                                                className={`${isActive ? 'text-amber-600 hover:text-amber-900' : 'text-green-600 hover:text-green-900'}`}
+                                                onClick={() => handleToggleActive(account._id, isActive)}
+                                                title={isActive ? 'Deactivate account' : 'Activate account'}
+                                            >
+                                                {isActive ? <MdLock className='text-xl' /> : <MdLockOpen className='text-xl' />}
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -314,7 +339,7 @@ const Accounts = () => {
                 </table>
                 <div className='px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-center gap-4 border-t dark:border-neutral-700'>
                     <div className='dark:text-white'>
-                        <p >
+                        <p className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm">
                             Showing <span className='font-medium'>{startIndex + 1}</span> to <span className='font-medium'>{endIndex}</span> of <span className='font-medium'>{totalUsers}</span> results
                         </p>
                     </div>
@@ -399,9 +424,10 @@ const Accounts = () => {
                     </div>
 
                     <div className='flex items-center space-x-2 ml-5'>
-                        <label className='text-sm dark:text-white'>Rows per page:</label>
+                        <label className="px-4 py-2 text-sm font-medium text-indigo-700 dark:text-indigo-50">Rows per page:</label>
                         <select
-                            className='px-2 py-1 border border-neutral-300 rounded-md text-sm dark:bg-neutral-800 dark:text-white dark:border-neutral-700'
+                            className="px-4 py-2 border border-indigo-300 dark:border-slate-600 rounded-lg text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors duration-200 shadow-sm"
+
                             value={usersPerPage}
                             onChange={(e) => {
                                 setUsersPerPage(e.target.value);

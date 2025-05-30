@@ -2,6 +2,8 @@ import axios from "axios";
 import { useState, useEffect } from "react";
 import { MdAdd, MdCancel, MdSave } from "react-icons/md";
 import { useNavigate, useParams } from "react-router-dom"
+import { useAlert } from '../../context/AlertContext'
+
 
 const EditAccount = () => {
     const { id } = useParams();
@@ -19,6 +21,7 @@ const EditAccount = () => {
     const [isAddmode, setIsAddmode] = useState(!id);
     const positions = ['Director', 'Deputy Director', 'Secretary', 'Department Head', 'Deputy Department', 'Project Leader', 'Administrator', 'Employee'];
 
+    const { showAlert } = useAlert();
 
     useEffect(() => {
         const fetchDepartments = async () => {
@@ -30,6 +33,7 @@ const EditAccount = () => {
                 });
                 if (response.data.success) {
                     setDepartments(response.data.data);
+                    console.log(response.data.data);
                 }
             } catch (error) {
                 console.log("Failed to fetch departments: ", error);
@@ -95,12 +99,12 @@ const EditAccount = () => {
                     }
                 });
             }
-
             if (response.data.success) {
+                showAlert(response.data.message, "success");
                 navigate("/accounts");
             }
         } catch (error) {
-            console.log("Failed to create/update account: ", error);
+            showAlert("Failed to create/update account", "error");
         } finally {
             setIsLoading(false);
         }
@@ -120,7 +124,7 @@ const EditAccount = () => {
                 <h1 className="font-bold text-2xl dark:text-white">{isAddmode ? 'Add New Account' : 'Edit Account'}</h1>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6 dark:bg-neutral-800">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700 p-6">
                 <form onSubmit={handleSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 ">
                         <div className="space-y-3">
@@ -134,7 +138,7 @@ const EditAccount = () => {
                                 name="email"
                                 value={formData.email}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             />
                         </div>
@@ -145,11 +149,93 @@ const EditAccount = () => {
                                 Password
                             </label>
                             <input
-                                type="password"
+                                type="text"
                                 name="password"
                                 value={formData.password}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                required
+                            />
+                        </div>
+                        <div className="space-y-3">
+                            <label
+                                className="block text-sm font-medium text-neutral-700 mb-1 dark:text-white"
+                            >
+                                Name
+                            </label>
+                            <input
+                                type="text"
+                                name="name"
+                                value={formData.name}
+                                onChange={handleChange}
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                required
+                            />
+                        </div>
+                        <div className="space-y-3">
+                            <label
+                                className="block text-sm font-medium text-neutral-700 mb-1 dark:text-white"
+                            >
+                                Position
+                            </label>
+                            <select
+                                name="position"
+                                value={formData.position}
+                                onChange={handleChange}
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                required
+                            >
+                                <option value="">Select Position</option>
+                                {positions.map(position => (
+                                    <option key={position} value={position}>{position}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-3">
+                            <label className="block text-sm font-medium text-neutral-700 mb-1 dark:text-white">
+                                Department
+                            </label>
+                            <select
+                                name="department"
+                                value={formData.department}
+                                onChange={handleChange}
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                required
+                            >
+                                <option value="">Select Department</option>
+                                {departments.map(dept => (
+                                    <option key={dept._id} value={dept._id}>{dept.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="space-y-3">
+                            <label
+                                className="block text-sm font-medium text-neutral-700 mb-1 dark:text-white"
+                            >
+                                Phone Number
+                            </label>
+                            <input
+                                type="text"
+                                name="phoneNumber"
+                                value={formData.phoneNumber}
+                                onChange={handleChange}
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
+                                required
+                            />
+                        </div>
+                        <div className="space-y-3">
+                            <label
+                                className="block text-sm font-medium text-neutral-700 mb-1 dark:text-white"
+                            >
+                                Address
+                            </label>
+                            <input
+                                type="text"
+                                name="address"
+                                value={formData.address}
+                                onChange={handleChange}
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             />
                         </div>
@@ -166,7 +252,7 @@ const EditAccount = () => {
                         <button
                             type="submit"
                             onClick={handleSubmit}
-                            className="flex items-center space-x-2 bg-neutral-500 text-white px-4 py-2 rounded-lg hover:bg-neutral-600 transition-all duration-200"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300 shadow-md hover:shadow-lg"
                         >
                             {isAddmode ? <MdAdd className="text-xl" /> : <MdSave className="text-xl" />}
                             <span>{isAddmode ? 'Add Account' : 'Update Account'}</span>

@@ -4,16 +4,20 @@ import { MdGroupAdd } from "react-icons/md";
 import axios from "axios";
 import { useUser } from "../../context/UserContext";
 import { useChatContext } from "../../context/ChatContext";
+import { useAlert } from '../../context/AlertContext';
+import ReactDOM from 'react-dom';
 
-const Groups = ({setPendingGroupChat}) => {
+const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
+    const { showAlert } = useAlert();
     const [users, setUsers] = useState([]);
     const [groups, setGroups] = useState([]);
     const [showMembers, setShowMembers] = useState(false);
     const [selectedMembers, setSelectedMembers] = useState({});
     const [showForm, setShowForm] = useState(false);
     const [groupName, setGroupName] = useState('');
-    const {setCurrentComponent} = useChatContext();
+    const { setCurrentComponent } = useChatContext();
     const { user, socket } = useUser();
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchUsers = async () => {
         try {
@@ -26,13 +30,12 @@ const Groups = ({setPendingGroupChat}) => {
             if (response.data.success) {
                 const filteredUsers = response.data.data.users.filter((u) => u._id !== user._id);
                 setUsers(filteredUsers);
-                // setUsers(response.data.data.users);
-                console.log(filteredUsers);
             }
         } catch (error) {
             console.log(error);
         }
     }
+    
     const fetchGroups = async () => {
         try {
             const response = await axios.get(`http://localhost:5000/api/conversation/user/${user._id}`, {
@@ -43,17 +46,17 @@ const Groups = ({setPendingGroupChat}) => {
 
             if (response.data.success) {
                 setGroups(response.data.data);
-                console.log(response.data.data);
             }
         } catch (error) {
             console.log(error);
         }
     }
+    
     useEffect(() => {
         fetchUsers();
         fetchGroups();
     }, []);
-   
+
     const sortedMembers = users.reduce((acc, member) => {
         const firstLetter = member.name.charAt(0).toUpperCase();
         if (!acc[firstLetter]) {
@@ -74,21 +77,32 @@ const Groups = ({setPendingGroupChat}) => {
     }
 
     const handleCreateGroup = async (name) => {
+        if (!name.trim()) {
+            showAlert('Please enter a group name', 'error');
+            return;
+        }
+        
         const selectedMemberIds = Object.keys(selectedMembers)
             .filter((memberId) => selectedMembers[memberId].selected);
+            
+        if (selectedMemberIds.length === 0) {
+            showAlert('Please select at least one member', 'error');
+            return;
+        }
+        
         socket.emit("create:conversation-group", {
             members: selectedMemberIds,
             conversationName: name,
             creator: user._id,
             type: "group"
         });
+        showAlert('Creating group...', 'info');
     }
 
     useEffect(() => {
         if (!socket) return;
 
         socket.on('group:created', (data) => {
-            console.log('Group received:', data);
             const newGroup = {
                 _id: data._id,
                 conversationInfo: {
@@ -101,66 +115,121 @@ const Groups = ({setPendingGroupChat}) => {
             setGroups((prev) => {
                 return [...prev, newGroup]
             });
-            console.log('Group created:', newGroup);
             setShowForm(false);
             setGroupName('');
             setSelectedMembers({});
+            showAlert('Group created successfully', 'success');
 
-            if (data.newConversation.creator === user._id){
+            if (data.newConversation.creator === user._id) {
                 if (setPendingGroupChat) {
                     setPendingGroupChat(data.newConversation);
                 }
                 setCurrentComponent('ConversationList');
             }
-        })
+        });
 
         return () => {
             socket.off('group:created');
         }
-    }, [socket, user._id, setCurrentComponent, setPendingGroupChat]);
+    }, [socket, user._id, setCurrentComponent, setPendingGroupChat, showAlert]);
+
+    const handleContactClick = (group) => {
+        setCurrentChat(group.conversationInfo);
+        socket.emit('chat:init', {
+            contactId: group.conversationInfo._id,
+            conversationType: group.conversationInfo.type,
+            conversationInfo: group.conversationInfo,
+        });
+    }
+
+    const filteredGroups = groups.filter(group => 
+        group.conversationInfo?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     return (
-        <div className="p-4 w-full z-0 mt-3">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Groups</h1>
+        <div className="p-4 w-full z-0 mt-3 bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-slate-900 dark:text-white shadow-2xl border-l border-slate-200/50 dark:border-slate-700/50 backdrop-blur-sm h-full">
+            {/* Header Section with Gradient Background */}
+            <div className="flex items-center justify-between bg-gradient-to-r from-purple-800 to-indigo-900 p-3 rounded-lg shadow-md mb-5">
+                <h1 className="text-2xl font-bold text-white">Groups</h1>
                 <button
                     onClick={() => setShowForm(!showForm)}
-                    className=" dark:text-white p-2 rounded-lg mt-3"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full transition-all duration-300 shadow-lg flex items-center justify-center"
+                    title="Create new group"
                 >
                     <MdGroupAdd className="text-xl" />
                 </button>
             </div>
-            {showForm && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className={`p-8 rounded-lg w-[500px] dark:bg-neutral-900 bg-neutral-100 space-y-5`}>
-                        <h2 className="text-2xl font-bold mb-4">Create Group Conversation</h2>
-                        <input
-                            type="text"
-                            placeholder="Group Name"
-                            className={`w-full p-2 rounded-xl mb-4 dark:bg-neutral-700 dark:text-white outline-none`}
-                            value={groupName}
-                            onChange={(e) => setGroupName(e.target.value)}
-                        />
-                        <h3 className="font-semibold mb-2">Group Members</h3>
-                        <div>
-                            <button className="font-semibold dark:bg-neutral-700 bg-neutral-200 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 hover:bg-neutral-300 transition-colors duration-300" onClick={() => setShowMembers(!showMembers)}>Select Members</button>
+
+            {/* Search Bar with Enhanced Styling */}
+            <div className="mt-2 mb-6 relative">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                    <CiSearch className="text-gray-400 text-xl" />
+                </div>
+                <input
+                    type="text"
+                    className="pl-10 pr-4 py-3 rounded-xl w-full border-2 border-gray-200 dark:border-neutral-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-300 transition-all duration-200 dark:bg-neutral-800 dark:text-white shadow-sm"
+                    placeholder="Search groups..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+
+            {/* Group Modal Portal */}
+            {showForm && ReactDOM.createPortal(
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[9999] backdrop-blur-sm">
+                    <div className="p-8 rounded-xl w-[500px] dark:bg-neutral-900 bg-white shadow-2xl space-y-5 border-2 border-indigo-500/30 animate-fadeIn">
+                        <h2 className="text-2xl font-bold mb-4 dark:text-white text-gray-800 flex items-center">
+                            <MdGroupAdd className="mr-2 text-indigo-500" /> Create Group Conversation
+                        </h2>
+                        
+                        {/* Group Name Input */}
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Group Name"
+                                className="w-full p-3 rounded-xl mb-4 dark:bg-neutral-800 bg-gray-100 dark:text-white text-gray-800 outline-none border-2 border-transparent focus:border-indigo-500 transition-all duration-300"
+                                value={groupName}
+                                onChange={(e) => setGroupName(e.target.value)}
+                            />
+                        </div>
+                        
+                        {/* Member Selection Section */}
+                        <div className="space-y-3">
+                            <h3 className="font-semibold mb-2 dark:text-white text-gray-800">Group Members</h3>
+                            <button 
+                                className="font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full transition-colors duration-300 flex items-center"
+                                onClick={() => setShowMembers(!showMembers)}
+                            >
+                                {showMembers ? "Hide Members" : "Select Members"}
+                            </button>
+                            
+                            {/* Members List */}
                             {showMembers && (
-                                <div className="mt-4 space-y-5 text-sm dark:bg-neutral-800 bg-neutral-200 p-5 rounded-lg">
+                                <div className="mt-4 space-y-5 text-sm dark:bg-neutral-800 bg-gray-100 p-5 rounded-xl border-2 border-indigo-500/20 max-h-[300px] overflow-y-auto custom-scrollbar">
                                     {Object.keys(sortedMembers).sort().map((letter) => (
                                         <div key={letter} className="space-y-4">
-                                            <h3 className="text-xl bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg  w-fit px-2 rounded-full">{letter}</h3>
+                                            <h3 className="text-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-lg w-fit px-3 py-1 rounded-full">
+                                                {letter}
+                                            </h3>
                                             <div className="space-y-4 ml-3">
                                                 {sortedMembers[letter].map((member) => (
-                                                    <div key={member.name} className="flex space-x-3" >
+                                                    <div key={member._id} className="flex items-center space-x-3 p-2 hover:bg-indigo-100 dark:hover:bg-neutral-700 rounded-lg transition-colors duration-200" >
                                                         <input
                                                             type="checkbox"
-                                                            className="w-3 h-3 mt-2"
-                                                            checked={selectedMembers[member.name]}
+                                                            className="w-4 h-4 accent-indigo-600"
+                                                            checked={selectedMembers[member._id]?.selected || false}
                                                             onChange={() => toggleMemberSelection(member)}
                                                         />
-                                                        <div className="flex pace-x-2 flex-col">
-                                                            <p className="text-lg font-semibold">{member.name}</p>
-                                                            <p className="text-xs text-zinc-00">{member.position} - {member.department.name}</p>
+                                                        <div className="flex space-x-3 items-center">
+                                                            <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 flex items-center justify-center text-white font-medium">
+                                                                {member.name.charAt(0)}
+                                                            </div>
+                                                            <div className="flex-col">
+                                                                <p className="text-base font-medium dark:text-white text-gray-800">{member.name}</p>
+                                                                <p className="text-xs dark:text-gray-300 text-gray-500">
+                                                                    {member.position} - {member.department?.name || 'Unknown Dept'}
+                                                                </p>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -170,95 +239,75 @@ const Groups = ({setPendingGroupChat}) => {
                                 </div>
                             )}
                         </div>
-                        <div className="flex justify-end space-x-2 mt-4 text-white font-semibold">
+                        
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 mt-4">
                             <button
                                 onClick={() => setShowForm(false)}
-                                className="px-4 py-2 bg-red-500 rounded-full"
+                                className="px-5 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-xl transition-colors duration-300 font-medium"
                             >
                                 Cancel
                             </button>
                             <button
-                                className="px-4 py-2 bg-blue-500 text-white rounded-full"
+                                className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl transition-all duration-300 font-medium shadow-md"
                                 onClick={() => handleCreateGroup(groupName)}
                             >
                                 Create Group
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            <div className="mt-5 flex items-center">
-                <div className="absolute flex items-center dark:text-white hover:text-gray-500 ml-2">
-                    <CiSearch className="text-gray-400 text-3xl hover:bg-neutral-600 p-1 rounded-full" />
-                </div>
-                <input
-                    type="text"
-                    className="pl-10 pr-4 py-2 rounded-3xl w-full border border-gray-300 dark:border-neutral-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-700 dark:text-white"
-                    placeholder="Search group..."
-                />
-            </div>
-            <div className="mt-14">
-                {groups.map((group) => (
-                    group.conversationInfo?.type === 'department' ? (
-                        <div
-                            key={group._id}
-                            className="p-3 rounded-lg dark:hover:bg-neutral-800 hover:bg-neutral-300 cursor-pointer mb-4"
-                        >
-                            <div className="flex items-center w-full space-x-3 justify-between">
-                                <div className="relative mr-3 flex space-x-5 items-center">
-                                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg ">
-                                        {group.conversationInfo.name.charAt(0)}
+            {/* Groups List with Enhanced Styling */}
+            <div className="mt-4 space-y-2">
+                {filteredGroups.length === 0 ? (
+                    <div className="text-center p-8 dark:text-gray-400 text-gray-500">
+                        {searchTerm ? "No groups match your search" : "No groups available"}
+                    </div>
+                ) : (
+                    filteredGroups.map((group) => (
+                        (group.conversationInfo?.type === 'department' || group.conversationInfo?.type === 'group') && (
+                            <div
+                                key={group._id}
+                                className="p-4 rounded-xl dark:hover:bg-neutral-800 hover:bg-gray-100 cursor-pointer mb-3 transition-all duration-200 border-l-4 border-indigo-500 dark:bg-neutral-900/50 bg-white shadow-sm hover:shadow-md"
+                                onClick={() => handleContactClick(group)}
+                            >
+                                <div className="flex items-center w-full justify-between">
+                                    <div className="flex items-center space-x-4">
+                                        <div className={`w-10 h-10 flex items-center justify-center rounded-full 
+                                            ${group.conversationInfo.type === 'department' 
+                                                ? 'bg-gradient-to-r from-emerald-500 to-teal-500' 
+                                                : 'bg-gradient-to-r from-purple-500 to-indigo-600'} 
+                                            text-white font-bold shadow-lg`}>
+                                            {group.conversationInfo.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <p className="text-base font-semibold flex items-center">
+                                                {group.conversationInfo.type === 'department' && (
+                                                    <span className="text-emerald-500 mr-1">#</span>
+                                                )}
+                                                {group.conversationInfo.name}
+                                            </p>
+                                            <p className="text-xs dark:text-gray-400 text-gray-500">
+                                                {group.conversationInfo.type === 'department' 
+                                                    ? `Department ${group.conversationInfo.departmentId?.name || ''} - ${group.conversationInfo.members?.length || 0} members` 
+                                                    : `${group.conversationInfo.members?.length || 0} members`}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-col items-start">
-                                        {group.conversationInfo.type === 'department' ? (
-                                            <>
-                                                <p className="text-base font-semibold">#{group.conversationInfo.name}</p>
-                                            </>
-                                        ) : (
-                                            <p className="text-base font-semibold">{group.conversationInfo.name}</p>
-                                        )}
-                                        <p className="text-[10px] text-zinc-00">Department {group.conversationInfo.departmentId.name} - {group.conversationInfo.members.length} members</p>
-                                    </div>
-
+                                    
+                                    {group.unreadCount > 0 && (
+                                        <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-full px-2.5 py-0.5 text-xs font-medium animate-pulse">
+                                            {group.unreadCount}
+                                        </span>
+                                    )}
                                 </div>
-                                {group.unreadCount > 0 && (
-                                    <p className="bg-red-800 bg-opacity-35 rounded-full px-2 text-pink-500 text-xs font-semibold">
-                                        {group.unreadCount}
-                                    </p>
-                                )}
                             </div>
-                        </div>
-                    ) : group.conversationInfo?.type === 'group' && (
-                        <div
-                            key={group._id}
-                            className="p-3 rounded-lg dark:hover:bg-neutral-800 hover:bg-neutral-300  cursor-pointer mb-4"
-                        >
-                            <div className="flex items-center w-full space-x-3 justify-between">
-                                <div className="relative mr-3 flex space-x-5 items-center">
-                                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-900 bg-opacity-20 text-purple-400 font-bold shadow-lg ">
-                                        {group.conversationInfo.name.charAt(0)}
-                                    </div>
-                                    <div className="flex flex-col items-start">
-                                        {group.conversationInfo.type === 'department' ? (
-                                            <>
-                                                <p className="text-base font-semibold">#{group.conversationInfo.name}</p>
-                                            </>
-                                        ) : (
-                                            <p className="text-base font-semibold">{group.conversationInfo.name}</p>
-                                        )}
-                                        <p className="text-[10px] text-zinc-00">{group.conversationInfo.members.length} members</p>
-                                    </div>
-                                </div>
-                                {group.unreadCount > 0 && (
-                                    <p className="bg-red-800 bg-opacity-35 rounded-full px-2 text-pink-500 text-xs font-semibold">
-                                        {group.unreadCount}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    )
-                ))}
+                        )
+                    ))
+                )}
             </div>
         </div>
     );

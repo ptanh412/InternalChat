@@ -3,11 +3,18 @@ const Department = require('../models/Department');
 const Users = require('../models/Users');
 const ConversationMember = require('../models/ConversationMember');
 const socketService = require('./socketService');
+const UserConvSetting = require('../models/UserConvSetting');
+const Messages = require('../models/Messages');
+const encryptionService = require('../utils/encryptionMsg');
 
 const createConvDepartment = async (departmentData, creator) => {
 	try {
 		const department = await Department.findById(departmentData.departmentId).lean().exec();
+		console.log('Department:', department);
+		console.log('Department header:', department.header);
+
 		if (!department) throw new Error('Department not found');
+
 
 		const conversation = await Conversations.create({
 			type: 'department',
@@ -15,8 +22,22 @@ const createConvDepartment = async (departmentData, creator) => {
 			avatarGroup: departmentData.avatarGroup || 'https://res.cloudinary.com/doruhcyf6/image/upload/v1733975023/Pngtree_group_avatar_icon_design_vector_3667776_xq0dzv.png',
 			creator: creator._id,
 			departmentId: department._id,
-			pinned: true
 		});
+		const welcomeMessage = await Messages.create({
+			conversationId: conversation._id,
+			content: `Welcome to ${departmentData.name || department.name}`,
+			sender: department.header,
+			type: 'system',
+			sentAt: new Date()
+		});
+
+		await Conversations.findByIdAndUpdate(
+			conversation._id,
+			{ $set: 
+				{ lastMessage: welcomeMessage._id }
+			},
+			{ new: true }
+		).lean().exec();
 
 		const deptHeader = await Users.find({
 			department: department._id,
@@ -38,10 +59,13 @@ const createConvDepartment = async (departmentData, creator) => {
 				canRemoveMembers: true,
 				canEditConversation: true,
 				canAssignDeputies: true
-			}
+			},
+			unreadCount: 1
 		});
 
 		for (const deputy of deputyHeader) {
+			console.log('Deputy ID:', deputy._id);
+
 			await ConversationMember.create({
 				conversationId: conversation._id,
 				memberId: deputy._id,
@@ -51,11 +75,14 @@ const createConvDepartment = async (departmentData, creator) => {
 					canAddMembers: true,
 					canRemoveMembers: true,
 					canEditConversation: true
-				}
+				},
+				unreadCount: 1
 			})
 		};
 
-		for (member of department.members) {
+		for (const member of department.members) {
+			console.log('Member ID:', member);
+
 
 			const isHead = deptHeader.some(head => head._id.toString() === member.toString());
 			const isDeputy = deputyHeader.some(deputy => deputy._id.toString() === member.toString());
@@ -71,7 +98,8 @@ const createConvDepartment = async (departmentData, creator) => {
 					canAddMembers: false,
 					canRemoveMembers: false,
 					canEditConversation: false
-				}
+				},
+				unreadCount: 1
 			});
 		};
 
@@ -80,14 +108,14 @@ const createConvDepartment = async (departmentData, creator) => {
 			{ conversationId: conversation._id }
 		)
 
-		await socketService.getSocket().createPersonalizedSystemmessage({
-			conversationId: conversation._id,
-			actorId: creator._id,
-			action: 'create_conversation',
-			data: { conversationName: conversation.name }
-		})
+		// await socketService.getSocket().createPersonalizedSystemmessage({
+		// 	conversationId: conversation._id,
+		// 	actorId: creator._id,
+		// 	action: 'create_conversation',
+		// 	data: { conversationName: conversation.name }
+		// })
 
-		await socketService.getSocket().notifyDepartmentConversationCreated(conversation);
+		// await socketService.getSocket().notifyDepartmentConversationCreated(conversation);
 
 		return conversation;
 	} catch (error) {
@@ -122,10 +150,10 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy, conve
 			if (!member.permissions.canEditConversation) {
 				throw new Error('User does not have permission to edit conversation');
 			};
-			if (updateData.addMembers && updateData.addMembers.length > 0 && !member.permissions.canAddMembers){
+			if (updateData.addMembers && updateData.addMembers.length > 0 && !member.permissions.canAddMembers) {
 				throw new Error('User does not have permission to add members');
 			}
-			if (updateData.removeMembers && updateData.removeMembers.length > 0 && !member.permissions.canRemoveMembers){
+			if (updateData.removeMembers && updateData.removeMembers.length > 0 && !member.permissions.canRemoveMembers) {
 				throw new Error('User does not have permission to remove members');
 			}
 		}
@@ -189,16 +217,10 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy, conve
 					addedMemberIds.push(user._id.toString());
 				}
 			}
-
-			if (addedMemberIds.length > 0) {
-				if (conversationType === 'department') {
-					await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
-				}
-			}
 		}
 
 		if (updateData.removeMembers && updateData.removeMembers.length > 0 && Array.isArray(updateData.removeMembers)) {
-		
+
 			const adminMembers = await ConversationMember.find({
 				conversationId: conversation._id,
 				role: { $in: ['admin', 'deputy_admin'] }
@@ -222,13 +244,7 @@ const updateConvDepartment = async (conversationId, updateData, updatedBy, conve
 					memberId: { $in: safeToRemove },
 					role: 'member'
 				});
-				if (conversationType === 'department') {
-					await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
-				}
 			}
-		}
-		if (conversationType === 'department') {
-			await socketService.getSocket().notifyDepartmentConversationUpdated(updatedConversation);
 		}
 		updatedConversation = await Conversations.findById(conversation._id).lean().exec();
 		return updatedConversation;
@@ -337,8 +353,6 @@ const createConvGroup = async (groupData, creator) => {
 	}
 }
 
-
-
 const checkconversationPermission = async (conversationId, userId, requiredRole = ['admin', 'deputy_admin']) => {
 	try {
 		const member = await ConversationMember.findOne({
@@ -408,6 +422,50 @@ const assignDeputyAdmin = async (conversationId, currentUserId, targetUserId) =>
 						canRemoveMembers: true,
 						canEditConversation: true,
 						canAssignDeputies: true
+					},
+					unreadCount: 1
+				}
+			},
+			{ new: true }
+		).populate('memberId', 'name').lean().exec();
+		return updatedMember;
+	} catch (error) {
+		throw error;
+	}
+}
+
+const recallDeputy = async (conversationId, currentUserId, targetUserId) => {
+	try {
+		const currentMember = await checkconversationPermission(conversationId, currentUserId, ['admin', 'deputy_admin']);
+
+		if (!currentMember.permissions.canAssignDeputies) {
+			throw new Error('You do not have permission to assign deputy admins');
+		}
+
+		const targetMember = await ConversationMember.findOne({
+			conversationId: conversationId,
+			memberId: targetUserId
+		}).populate('memberId', 'name').lean().exec();
+
+		// if (!targetMember) throw new Error('Target user is not a member of this conversation');
+
+		// if (targetMember.role === 'admin' || targetMember.role === 'deputy_admin') {
+		// 	throw new Error('Target user is already an admin or deputy admin');
+		// };
+
+		const conversation = await Conversations.findById(conversationId).lean().exec();
+
+		const updatedMember = await ConversationMember.findOneAndUpdate(
+			{ conversationId, memberId: targetUserId },
+			{
+				$set: {
+					role: 'member',
+					permissions: {
+						canChat: conversation.type === 'department' ? false : true,
+						canAddMembers: false,
+						canRemoveMembers: false,
+						canEditConversation: false,
+						canAssignDeputies: false
 					}
 				}
 			},
@@ -487,11 +545,19 @@ const getConvById = async (currentUserId) => {
 
 		const conversationMembers = await ConversationMember.find({
 			memberId: currentUserId
-		})
-			.lean()
-			.exec();
+		}).lean().exec();
 
 		const conversationIds = conversationMembers.map(cm => cm.conversationId);
+
+		const userSettings = await UserConvSetting.find({
+			userId: currentUserId,
+			conversationId: { $in: conversationIds }
+		}).lean().exec();
+
+		const settingsMap = {};
+		userSettings.forEach(setting => {
+			settingsMap[setting.conversationId.toString()] = setting;
+		});
 
 		const conversations = await Conversations.find({
 			_id: { $in: conversationIds }
@@ -524,9 +590,33 @@ const getConvById = async (currentUserId) => {
 			.populate({
 				path: 'creator',
 				select: 'name avatar'
-			})
-			.lean()
+			})			.lean()
 			.exec();
+		// Decrypt lastMessage content for each conversation
+		conversations.forEach(conversation => {
+			if (conversation.lastMessage && conversation.lastMessage.content) {
+				try {
+					conversation.lastMessage.content = encryptionService.decryptMessage(
+						conversation.lastMessage.content,
+						conversation._id.toString()
+					);
+				} catch (error) {
+					console.error('Error decrypting lastMessage content:', error);
+					// Keep original content if decryption fails
+				}
+			}
+			
+			// Also decrypt attachment file names in lastMessage if they exist
+			if (conversation.lastMessage && conversation.lastMessage.attachments && conversation.lastMessage.attachments.length > 0) {
+				conversation.lastMessage.attachments = conversation.lastMessage.attachments.map(attachment => ({
+					...attachment,
+					fileName: attachment.fileName ? encryptionService.decryptFileName(
+						attachment.fileName,
+						conversation._id.toString()
+					) : attachment.fileName
+				}));
+			}
+		});
 
 		const populatedConversations = await Promise.all(
 			conversations.map(async (conversation) => {
@@ -545,7 +635,6 @@ const getConvById = async (currentUserId) => {
 
 				// Tạo mảng members với thông tin role và permissions bổ sung
 				const enrichedMembers = members.map(member => {
-					// Tạo đối tượng user từ memberId và bổ sung thêm role và permissions
 					const memberData = {
 						...member.memberId,  // Giữ nguyên thông tin user (name, avatar, position, status, department)
 						role: member.role,
@@ -557,14 +646,56 @@ const getConvById = async (currentUserId) => {
 				const userMember = await ConversationMember.findOne({
 					conversationId: conversation._id,
 					memberId: currentUserId
-				})
-					.lean();
+				}).lean();
 
+				const userSetting = settingsMap[conversation._id.toString()] || { isPinned: false, isArchived: false };
+
+				let otherUserCommonGroups = [];
+				if (conversation.type === 'private' && enrichedMembers.length == 2) {
+					const otherUser = enrichedMembers.find(m => m._id.toString() !== currentUserId.toString());
+					if (otherUser){
+						const otherUserConvs = await ConversationMember.find({
+							memberId: otherUser._id
+						}).distinct('conversationId');
+
+						const currentUserConvs = await ConversationMember.find({
+							memberId: currentUserId
+						}).distinct('conversationId')
+
+						const otherUserConvIds = otherUserConvs.map(conv => conv.toString());
+						const currentUserConvIds = currentUserConvs.map(conv => conv.toString());
+
+						const commonConvIds = otherUserConvIds.filter(id => 
+							currentUserConvIds.includes(id) &&
+							id !== conversation._id.toString()
+						);
+
+						if (commonConvIds.length > 0){
+							const commonConvs = await Conversations.find({
+								_id: { $in: commonConvIds },
+								type: {$in: ['group', 'department']}
+							}).select('name avatarGroup type').lean().exec();	
+
+							otherUserCommonGroups = commonConvs
+						}
+					}
+				}
+				// console.log('Other user common groups:', otherUserCommonGroups);
 				return {
 					_id: userMember._id,
 					conversationInfo: {
 						...conversation,
-						members: enrichedMembers, // Sử dụng mảng members đã được bổ sung role và permissions
+						members: enrichedMembers.map(member => {
+							if (conversation.type === 'private' && member._id.toString() !== currentUserId.toString()){
+								return {
+									...member,
+									commonGroups: otherUserCommonGroups
+								};
+							}
+							return member;
+						}), // Sử dụng mảng members đã được bổ sung role và permissions
+						pinned: userSetting.isPinned || false,
+						archived: userSetting.isArchived || false,
 					},
 					memberId: currentUserId,
 					unreadCount: userMember.unreadCount,
@@ -576,7 +707,33 @@ const getConvById = async (currentUserId) => {
 	} catch (error) {
 		throw error;
 	}
+
 }
+const getUserConversations = async (userId) => {
+	try {
+		const conversations = await getConvById(userId);
+
+		// Sort conversations - pinned conversations first, then by last message time
+		const sortedConversations = conversations.sort((a, b) => {
+			// First sort by pinned status
+			if (a.conversationInfo.pinned && !b.conversationInfo.pinned) return -1;
+			if (!a.conversationInfo.pinned && b.conversationInfo.pinned) return 1;
+
+			// Then sort by last message time (newest first)
+			const aTime = a.conversationInfo.lastMessage?.sentAt || a.conversationInfo.createdAt;
+			const bTime = b.conversationInfo.lastMessage?.sentAt || b.conversationInfo.createdAt;
+			return new Date(bTime) - new Date(aTime);
+		});
+
+		return sortedConversations;
+	} catch (error) {
+		console.error('Error fetching user conversations:', error);
+		return res.status(500).json({
+			success: false,
+			message: error.message
+		});
+	}
+};
 
 const getAllConvDepartment = async () => {
 	try {
@@ -665,6 +822,99 @@ const getAllConvDepartmentById = async (conversationId) => {
 		throw error;
 	}
 }
+
+const pinConversation = async (conversationId, userId) => {
+	try {
+		const conversation = await Conversations.findById(conversationId).lean().exec();
+		if (!conversation) throw new Error('Conversation not found');
+
+		const member = await ConversationMember.findOne({
+			conversationId: conversation._id,
+			memberId: userId
+		}).lean().exec();
+		if (!member) throw new Error('User is not a member of this conversation');
+
+		let settings = await UserConvSetting.findOne({
+			userId,
+			conversationId
+		});
+
+		if (!settings) {
+			settings = await UserConvSetting.create({
+				userId,
+				conversationId,
+				isPinned: true
+			});
+			await settings.save();
+			return {
+				success: true,
+				message: 'Conversation pinned',
+				isPinned: true,
+				_id: conversation._id
+
+			}
+		} else {
+			settings.isPinned = !settings.isPinned;
+			await settings.save();
+
+			return {
+				success: true,
+				message: settings.isPinned ? 'Conversation pinned' : 'Conversation unpinned',
+				isPinned: settings.isPinned,
+				_id: conversation._id
+			}
+		}
+
+	} catch (error) {
+		throw error;
+	}
+}
+
+const archivedConversations = async (conversationId, userId) => {
+	try {
+		const conversation = await Conversations.findById(conversationId).lean().exec();
+		if (!conversation) throw new Error('Conversation not found');
+
+		const member = await ConversationMember.findOne({
+			conversationId: conversation._id,
+			memberId: userId
+		}).lean().exec();
+		if (!member) throw new Error('User is not a member of this conversation');
+
+		let settings = await UserConvSetting.findOne({
+			userId,
+			conversationId
+		});
+
+		if (!settings) {
+			settings = await UserConvSetting.create({
+				userId,
+				conversationId,
+				isArchived: true
+			});
+			await settings.save();
+			return {
+				success: true,
+				message: 'Conversation archived',
+				isArchived: true,
+				_id: conversation._id
+
+			}
+		} else {
+			settings.isArchived = !settings.isArchived;
+			await settings.save();
+			return {
+				success: true,
+				message: settings.isArchived ? 'Conversation archived' : 'Conversation unarchived',
+				isArchived: settings.isArchived,
+				_id: conversation._id
+			}
+		}
+
+	} catch (error) {
+		throw error;
+	}
+}
 module.exports = {
 	createConvDepartment,
 	updateConvDepartment,
@@ -672,8 +922,12 @@ module.exports = {
 	createConvGroup,
 	updateAllMembersChat,
 	assignDeputyAdmin,
+	recallDeputy,
 	transferAdminRole,
 	getConvById,
+	getUserConversations,
 	getAllConvDepartment,
-	getAllConvDepartmentById
+	getAllConvDepartmentById,
+	pinConversation,
+	archivedConversations
 }

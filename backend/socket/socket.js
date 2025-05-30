@@ -4,12 +4,15 @@ const Users = require('../models/Users');
 const Typing = require('../models/Typing');
 const Notifications = require('../models/Notifications');
 const ConversationMember = require('../models/ConversationMember');
+const Call = require('../models/Call');
 const Department = require('../models/Department');
 const Conversations = require('../models/Conversations');
 const Messages = require('../models/Messages');
 const messageService = require('../services/messageService');
 const conversationService = require('../services/conversationService');
 const authService = require('../services/authService');
+const socketService = require('../services/socketService');
+const encryptionService = require('../utils/encryptionMsg');
 
 const setUpSocket = (server) => {
 	const io = new Server(server, {
@@ -23,6 +26,673 @@ const setUpSocket = (server) => {
 	const socketUserMap = new Map();
 	const userActiveConversations = new Map();
 	const temporaryChats = new Map();
+	const createUpdateNotification = async (user, originalValues, updateData, adminUser) => {
+		// console.error('Creating update notification:', user, originalValues, updateData, adminUser);
+		try {
+			if (!updateData.position) return;
+
+			const isPositionChanges = updateData.position && updateData.position !== originalValues.position;
+			const isDepartmentChanges = updateData.department && (!originalValues.department || !updateData.department.equals(originalValues.department));
+
+			if (isPositionChanges && !isDepartmentChanges && originalValues.department) {
+				const department = await Department.findById(originalValues.department).select('name members').lean();
+
+				if (department) {
+					const metadata = {
+						departmentName: department.name,
+						oldPosition: {
+							_id: user._id,
+							name: user.name,
+							position: originalValues.position,
+						},
+						newPosition: {
+							_id: user._id,
+							name: user.name,
+							position: updateData.position,
+						}
+					};
+
+					const deptNotification = await Notifications.create({
+						sender: adminUser,
+						departmentId: originalValues.department,
+						content: `${user.name} has changed position to ${updateData.position}`,
+						type: 'system_position_change',
+						metadata,
+						excludeUsers: [user._id]
+					});
+
+					const userNotification = await Notifications.create({
+						sender: adminUser._id,
+						received: user._id,
+						content: `You have changed position to ${updateData.position}`,
+						type: 'system',
+						metadata
+					})
+					console.log('Notification received', userNotification);
+					await notifyDepartmentMembers(department, user._id, deptNotification);
+					await notifyUser(user._id, userNotification);
+				}
+			}
+			if (isDepartmentChanges) {
+				const oldDepartment = originalValues.department ?
+					await Department.findById(originalValues.department).select('name members').lean() : null;
+				const newDepartment = updateData.department ?
+					await Department.findById(updateData.department).select('name members').lean() : null;
+
+				if (newDepartment) {
+					const metadata = {
+						oldPosition: {
+							_id: user._id,
+							name: user.name,
+							position: originalValues.position,
+						},
+						newPosition: {
+							_id: user._id,
+							name: user.name,
+							position: updateData.position,
+						},
+						oldDepartment: oldDepartment ? {
+							_id: originalValues.department,
+							name: oldDepartment.name,
+						} : null,
+						newDepartment: {
+							_id: updateData.department,
+							name: newDepartment.name,
+						}
+					}
+
+					const newDeptNotification = await Notifications.create({
+						sender: adminUser._id,
+						departmentId: newDepartment._id,
+						content: `${user.name} has been moved to ${newDepartment.name}`,
+						type: 'system_member_joined',
+						metadata,
+						excludeUsers: [user._id]
+					})
+
+					const userNotification = await Notifications.create({
+						sender: adminUser._id,
+						received: user._id,
+						content: `You have been move to ${newDepartment.name}`,
+						type: 'system',
+						metadata
+					});
+
+					await notifyDepartmentMembers(newDepartment, user._id, newDeptNotification);
+					await notifyUser(user._id, userNotification);
+				}
+				if (oldDepartment) {
+					const oldDeptmetadata = {
+						oldPosition: {
+							_id: user._id,
+							name: user.name,
+							position: originalValues.position,
+						},
+						newPosition: {
+							_id: user._id,
+							name: user.name,
+							position: updateData.position || originalValues.position,
+						},
+						oldDepartment: {
+							_id: originalValues.department,
+							name: oldDepartment.name,
+						},
+						newDepartment: newDepartment ? {
+							_id: updateData.department,
+							name: newDepartment.name,
+						} : null
+					}
+
+					const oldDeptNotification = await Notifications.create({
+						sender: adminUser._id,
+						departmentId: originalValues.department,
+						content: `${user.name} has been removed from ${oldDepartment.name}`,
+						type: 'system_member_removed',
+						metadata: oldDeptmetadata,
+						excludeUsers: [user._id]
+					});
+
+					await notifyDepartmentMembers(oldDepartment, user._id, oldDeptNotification);
+				}
+
+			}
+		} catch (error) {
+			console.error('Error creating update notification:', error.message);
+			throw new Error('Failed to create update notification');
+		}
+	};
+
+	const notifyDepartmentMembers = async (department, excludeUserId, notification) => {
+		// console.error('Notifying department members:', department, excludeUserId, notification);
+		try {
+			// Populate the sender information first
+			const populatedNotification = await Notifications.findById(notification._id)
+				.populate('sender', 'name avatar _id')
+				.lean();
+
+			for (const memberId of department.members) {
+				if (memberId.equals(excludeUserId)) {
+					continue;
+				}
+
+				const socketId = userSocketMap.get(memberId.toString());
+				// console.log('Socket ID notifyDepartmentMembers:', socketId);
+				if (socketId) {
+					io.to(socketId).emit('notification:new', {
+						...populatedNotification,
+						received: memberId
+					});
+				}
+			}
+		} catch (error) {
+			console.error('Error notifying department members:', error.message);
+		}
+	};
+
+	const notifyUser = async (userId, notification) => {
+		// console.error('Notifying user:', userId, notification);
+		try {
+			// Populate the sender information first
+			const populatedNotification = await Notifications.findById(notification._id)
+				.populate('sender', 'name avatar _id')
+				.lean();
+
+			const socketId = userSocketMap.get(userId.toString());
+			//   console.log('Socket ID notifyUser:', socketId);
+			if (socketId) {
+				io.to(socketId).emit('notification:new', populatedNotification);
+			}
+		} catch (error) {
+			console.error('Error notifying user:', error.message);
+		}
+	};
+	const notifyUserUpdate = async (updatedUser) => {
+		try {
+			io.emit('user:update', {
+				userId: updatedUser._id,
+				updateData: updatedUser
+			})
+		} catch (error) {
+			console.error('Error notifying user update', error);
+		}
+	};
+
+	const emitRoleUpdate = async (data) => {
+		// console.log('Emitting role update:', data);
+		const { userId, oldDepartmentId, newDepartmentId, oldPosition, newPosition, adminId } = data;
+		try {
+			const user = await Users.findById(userId)
+				.select('name avatar status department position')
+				.populate('department', 'name').lean().exec();
+			const admin = adminId ? await Users.findById(adminId).select('name').lean().exec() : null;
+
+			if (oldDepartmentId && newDepartmentId && oldDepartmentId.toString() === newDepartmentId.toString()) {
+				const department = await Department.findById(oldDepartmentId)
+					.populate('header', 'name avatar status')
+					.populate('deputyHeader', 'name avatar status')
+					.lean().exec();
+
+				if (!department) return;
+
+				let actionType = '';
+				let updatedUser = null;
+
+				if (newPosition === 'Department Head') {
+					actionType = 'header_assigned';
+					updatedUser = { ...user, role: 'admin' };
+				} else if (newPosition === 'Deputy Department') {
+					actionType = 'deputy_assigned';
+					updatedUser = { ...user, role: 'deputy_admin' };
+				} else if (oldPosition === 'Department Head') {
+					actionType = 'header_removed';
+					updatedUser = { ...user, role: 'member' };
+				} else if (oldPosition === 'Deputy Department') {
+					actionType = 'deputy_removed';
+					updatedUser = { ...user, role: 'member' };
+				}
+
+				const systemMessage = await Messages.create({
+					conversationId: department.conversationId,
+					sender: adminId,
+					type: 'system',
+					content: `${admin.name} updated ${user.name}'s role`,
+					metadata: {
+						action: actionType,
+						department: {
+							_id: department._id,
+							name: department.name
+						},
+						userChange: {
+							_id: user._id,
+							name: user.name,
+							avatar: user.avatar,
+						},
+						oldPosition: oldPosition,
+						newPosition: newPosition,
+						changedBy: admin ? {
+							_id: admin._id,
+							name: admin.name
+						} : null
+					}
+				});
+
+				await Conversations.findByIdAndUpdate(department.conversationId, {
+					lastMessage: systemMessage._id
+				});
+
+				const populatedMessage = await Messages.findById(systemMessage._id)
+					.populate('sender', 'name avatar status')
+					.lean().exec();
+
+				const members = await ConversationMember.find({
+					conversationId: department.conversationId
+				}).populate({
+					path: 'memberId',
+					select: 'name avatar status department position',
+					populate: {
+						path: 'department',
+						select: 'name'
+					}
+				}).lean().exec();
+
+				const enrichedMembers = members.map(member => {
+					const memberData = {
+						...member.memberId,
+						role: member.role,
+						permissions: member.permissions
+					};
+					return memberData;
+				});
+
+				const convIdString = department.conversationId.toString();
+
+				const updateData = {
+					conversationId: department.conversationId,
+					members: enrichedMembers,
+					lastMessage: populatedMessage,
+					unreadCount: 0
+				};
+
+				if (actionType === 'header_assigned') {
+					updateData.newAdmin = updatedUser;
+				} else if (actionType === 'deputy_assigned') {
+					updateData.newDeputy = updatedUser;
+				}
+
+				io.to(convIdString).emit('chat:update', {
+					type: 'update_members',
+					data: updateData
+				});
+
+				io.emit('chat:update', {
+					type: 'update_members',
+					data: updateData
+				})
+				for (const member of members) {
+					const memberIdString = member.memberId._id.toString();
+					const memberSocketId = userSocketMap.get(memberIdString);
+
+					const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+					if (!isInRoom && memberSocketId) {
+						await ConversationMember.findOneAndUpdate(
+							{
+								conversationId: department.conversationId,
+								memberId: member.memberId._id
+							},
+							{ $inc: { unreadCount: 1 } }
+						)
+						io.to(memberSocketId).emit('chat:update', {
+							type: 'update_members',
+							data: {
+								...updateData,
+								unreadCount: 1,
+								isIncrement: true
+							}
+						});
+					}
+				}
+			} else {
+				if (oldDepartmentId) {
+					const oldDepartment = await Department.findById(oldDepartmentId).lean().exec();
+					if (oldDepartment) {
+						const removalMessage = await Messages.create({
+							conversationId: oldDepartment.conversationId,
+							sender: adminId,
+							type: 'system',
+							content: `${admin.name} removed ${user.name} from the department`,
+							metadata: {
+								action: 'member_removed',
+								department: {
+									_id: oldDepartment._id,
+									name: oldDepartment.name
+								},
+								userChange: {
+									_id: user._id,
+									name: user.name,
+									avatar: user.avatar,
+								},
+								previousRole: oldPosition,
+								changedBy: admin ? {
+									_id: admin._id,
+									name: admin.name
+								} : null,
+								removedBy: {
+									_id: adminId,
+									name: admin.name
+								},
+								removedMembers: [{
+									_id: user._id,
+									name: user.name,
+									avatar: user.avatar,
+								}]
+							}
+						});
+
+						await Conversations.findByIdAndUpdate(oldDepartment.conversationId, {
+							lastMessage: removalMessage._id
+						});
+
+						const populatedMessage = await Messages.findById(removalMessage._id)
+							.populate('sender', 'name avatar status')
+							.lean().exec();
+						const oldMembers = await ConversationMember.find({
+							conversationId: oldDepartment.conversationId
+						}).populate({
+							path: 'memberId',
+							select: 'name avatar status department position',
+							populate: {
+								path: 'department',
+								select: 'name'
+							}
+						}).lean().exec();
+
+						const enrichedOldMembers = oldMembers.map(member => {
+							const memberData = {
+								...member.memberId,
+								role: member.role,
+								permissions: member.permissions
+							};
+							return memberData;
+						});
+
+						const oldConvIdString = oldDepartment.conversationId.toString();
+						io.emit('chat:update', {
+							type: 'update_members',
+							data: {
+								conversationId: oldDepartment.conversationId,
+								members: enrichedOldMembers,
+								lastMessage: populatedMessage,
+								unreadCount: 0,
+								removedMember: {
+									_id: user._id,
+									name: user.name
+								}
+							}
+						});
+
+						for (const member of oldMembers) {
+							const memberIdString = member.memberId._id.toString();
+							const memberSocketId = userSocketMap.get(memberIdString);
+
+							const isInRoom = isUserActiveInConversation(memberIdString, oldConvIdString);
+
+							if (!isInRoom && memberSocketId) {
+								await ConversationMember.findOneAndUpdate(
+									{
+										conversationId: oldDepartment.conversationId,
+										memberId: member.memberId._id
+									},
+									{ $inc: { unreadCount: 1 } }
+								)
+								io.to(memberSocketId).emit('chat:update', {
+									type: 'update_members',
+									data: {
+										conversationId: oldDepartment.conversationId,
+										members: enrichedOldMembers,
+										lastMessage: populatedMessage,
+										unreadCount: 1,
+										isIncrement: true,
+										removedMember: {
+											_id: user._id,
+											name: user.name
+										}
+									},
+									sourceAction: 'role_update'
+								});
+							}
+						}
+					}
+				}
+				if (newDepartmentId) {
+					const newDepartment = await Department.findById(newDepartmentId).lean().exec();
+					if (!newDepartment) return;
+
+					let conversationId = newDepartment.conversationId;
+					if (!conversationId) {
+						const newConversation = await Conversations.create({
+							type: 'department',
+							name: newDepartment.name,
+							creator: adminId,
+							departmentId: newDepartmentId,
+						});
+						conversationId = newConversation._id;
+						await Department.findByIdAndUpdate(newDepartmentId, {
+							conversationId: conversationId,
+							updatedAt: new Date()
+						});
+					}
+					let actionType = 'member_added';
+					let updateUser = { ...user, role: 'member' };
+
+					if (newPosition === 'Department Head') {
+						actionType = 'header_assigned';
+						updateUser = { ...user, role: 'admin' };
+					} else if (newPosition === 'Deputy Department') {
+						actionType = 'deputy_assigned';
+						updateUser = { ...user, role: 'deputy_admin' };
+					}
+
+					const additionMessage = await Messages.create({
+						conversationId: conversationId,
+						sender: adminId,
+						type: 'system',
+						content: `${admin.name} added ${user.name} to the department`,
+						metadata: {
+							action: actionType,
+							department: {
+								_id: newDepartment._id,
+								name: newDepartment.name
+							},
+							userChange: {
+								_id: user._id,
+								name: user.name,
+								avatar: user.avatar,
+							},
+							newRole: newPosition,
+							changedBy: admin ? {
+								_id: admin._id,
+								name: admin.name
+							} : null
+						}
+					});
+
+					await Conversations.findByIdAndUpdate(conversationId, {
+						lastMessage: additionMessage._id
+					});
+
+					const populatedMessage = await Messages.findById(additionMessage._id)
+						.populate('sender', 'name avatar status')
+						.lean().exec();
+					const newMembers = await ConversationMember.find({
+						conversationId: conversationId
+					}).populate({
+						path: 'memberId',
+						select: 'name avatar status department position',
+						populate: {
+							path: 'department',
+							select: 'name'
+						}
+					}).lean().exec();
+
+					const enrichedNewMembers = newMembers.map(member => {
+						const memberData = {
+							...member.memberId,
+							role: member.role,
+							permissions: member.permissions
+						};
+						return memberData;
+					});
+
+					const newConvIdString = conversationId.toString();
+
+					const updateData = {
+						conversationId: conversationId,
+						name: newDepartment.name,
+						avatarGroup: '',
+						members: enrichedNewMembers,
+						lastMessage: populatedMessage,
+						unreadCount: 0,
+						sourceAction: 'role_update'
+					}
+
+					if (actionType === 'header_assigned') {
+						updateData.newAdmin = updateUser;
+					} else if (actionType === 'deputy_assigned') {
+						updateData.newDeputy = updateUser;
+					} else {
+						updateData.newMember = updateUser;
+					};
+
+					io.emit('chat:update', {
+						type: 'update_members',
+						data: updateData
+					});
+
+					for (const member of newMembers) {
+						const memberIdString = member.memberId._id.toString();
+						const memberSocketId = userSocketMap.get(memberIdString);
+
+						const isInRoom = isUserActiveInConversation(memberIdString, newConvIdString);
+
+						if (!isInRoom && memberSocketId) {
+							await ConversationMember.findOneAndUpdate(
+								{
+									conversationId: conversationId,
+									memberId: member.memberId._id
+								},
+								{ $inc: { unreadCount: 1 } }
+							)
+							io.to(memberSocketId).emit('chat:update', {
+								type: 'update_members',
+								data: {
+									...updateData,
+									unreadCount: 1,
+									isIncrement: true
+								}
+							});
+						}
+					}
+				}
+			}
+		} catch (error) {
+			console.error('Error updating user role', error);
+		}
+	}
+
+	const toggleActive = async (data) => {
+		console.log('Toggle active event received:', data);
+		try {
+			let userId, isActive;
+			if (data && typeof data === 'object') {
+				if (data.userId) {
+					userId = data.userId;
+					isActive = data.isActive;
+				} else {
+					userId = Object.keys(data)[0];
+					isActive = data[userId];
+				}
+			} else {
+				userId = data;
+			}
+			if (!userId) return;
+			const userIdString = userId.toString ? userId.toString() : String(userId);
+			const socketId = userSocketMap.get(userIdString);
+			console.log('Socket ID toggleActive:', socketId);
+			const message = isActive
+				? 'Your account has been activated. You can log in now.'
+				: 'Your account has been deactivated. Please contact the administrator.';
+			io.to(socketId).emit('account:deactivated', {
+				userId: userIdString,
+				active: isActive,
+				message: message
+			});
+		} catch (error) {
+			console.error('Error toggling user active status', error);
+		}
+	}
+
+	const helpers = {
+		createUpdateNotification,
+		notifyDepartmentMembers,
+		notifyUser,
+		notifyUserUpdate,
+		emitRoleUpdate,
+		toggleActive
+	}
+
+	socketService.setSocketInstance(null, io, helpers);
+
+	const logCallSystemMessage = async (call) => {
+		try {
+			let content = '';
+			const durationMinutes = call.duration ? Math.floor(call.duration / 60) : 0;
+			const durationSeconds = call.duration ? call.duration % 60 : 0;
+			const durationString = call.duration ? `${durationMinutes > 0 ? durationMinutes + 'm' : ''}${durationSeconds}s` : '0s';
+
+			switch (call.status) {
+				case 'completed':
+					content = `Call ended. Duration: ${durationString}`;
+					break;
+				case 'missed':
+					content = `Missed ${call.type} call.`;
+					break;
+				case 'declined':
+					content = 'Call was declined.';
+					break;
+				case 'failed':
+					content = 'Call failed.';
+					break;
+				default:
+					content = `Call finished with status: ${call.status}`;
+			}
+
+			const systemMessage = new Messages({
+				conversationId: call.conversationId,
+				sender: call.initiator,
+				content: content,
+				type: 'system',
+				metadata: {
+					callId: call._id,
+					status: call.status,
+					type: call.type,
+					duration: call.duration,
+					participants: call.participants.map(p => ({ user: p.user.toString(), status: p.status }))
+				}
+			});
+			await systemMessage.save();
+
+			await Conversations.findByIdAndUpdate(call.conversationId, {
+				lastMessage: systemMessage._id,
+				updatedAt: new Date()
+			});
+
+			io.to(call.conversationId.toString()).emit('message:new', systemMessage);
+		} catch (error) {
+			console.error('Error logging call system message:', error);
+		}
+	}
+
 	io.use(socketAuth);
 	io.on('connection', async (socket) => {
 		console.log(`User connected: ${socket.userId}`);
@@ -38,7 +708,6 @@ const setUpSocket = (server) => {
 		userSocketMap.set(socket.userId.toString(), socket.id);
 		console.log("userSocketMap after connection:", userSocketMap);
 		socketUserMap.set(socket.id, socket.userId.toString());
-
 		const unreadCount = await Notifications.countDocuments({
 			received: socket.userId,
 			isRead: false
@@ -46,7 +715,25 @@ const setUpSocket = (server) => {
 		io.emit('user:status', {
 			userId: socket.userId,
 			status: 'online'
-		})
+		});
+
+		socket.on('get:user-status', async () => {
+			try {
+				const onlineUsers = await Users.find(
+					{ status: 'online' },
+					{ _id: 1, status: 1 }
+				);
+
+				socket.emit('user:status-bulk',
+					onlineUsers.map(user => ({
+						userId: user._id,
+						status: user.status
+					}))
+				);
+			} catch (error) {
+				console.error('Error getting user status', error);
+			}
+		});
 
 		socket.on('user:update', async (data) => {
 			console.log('User update event received:', data);
@@ -61,8 +748,7 @@ const setUpSocket = (server) => {
 					}
 				});
 
-				// const updatedUser = await authService.updateUser(userId, filteredUpdateData);
-
+				await authService.updateUser(userId, filteredUpdateData);
 				io.emit('user:updated', {
 					userId,
 					updateFields: filteredUpdateData
@@ -105,6 +791,7 @@ const setUpSocket = (server) => {
 		})
 
 		socket.on('chat:init', async (data) => {
+			// console.log('Received chat:init event:', data);
 			const { contactId, conversationType, conversationInfo } = data;
 			const initiatorId = socket.userId;
 			try {
@@ -135,6 +822,7 @@ const setUpSocket = (server) => {
 							_id: { $in: sharedConvIds },
 							type: 'private',
 						}).populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status').lean().exec();
+						console.log('Existing conversation found:', existingConversation);
 					}
 				} else if (conversationType === 'group' || conversationType === 'department') {
 					existingConversation = await Conversations.findOne({
@@ -150,10 +838,23 @@ const setUpSocket = (server) => {
 					}).populate({
 						path: 'memberId',
 						select: 'name avatar status department position',
-						populate: {
+						populate: [{
 							path: 'department',
 							select: 'name'
+						},
+						{
+							path: 'role',
+							select: 'permissions',
+							populate: {
+								path: 'permissions',
+								select: 'createGroup createDepartment manageDepartment manageUsers'
+							}
+						},
+						{
+							path: 'customPermissions',
+							select: 'createGroup createDepartment manageDepartment manageUsers'
 						}
+						]
 					}).lean().exec();
 					const enrichedMembers = members.map(member => {
 						// Tạo đối tượng user từ memberId và bổ sung thêm role và permissions
@@ -162,15 +863,70 @@ const setUpSocket = (server) => {
 							role: member.role,
 							permissions: member.permissions
 						};
+						let systemPermissions = null;
+
+						if (member.memberId.customPermissions) {
+							systemPermissions = member.memberId.customPermissions;
+						} else if (member.memberId.role && member.memberId.role.permissions) {
+							systemPermissions = member.memberId.role.permissions;
+						}
+
+						if (systemPermissions) {
+							memberData.permissionSystem = {
+								createGroup: systemPermissions.createGroup,
+								createDepartment: systemPermissions.createDepartment,
+								manageDepartment: systemPermissions.manageDepartment,
+								manageUsers: systemPermissions.manageUsers
+							};
+						}
 						return memberData;
 					});
+					let otherUserCommonGroups = [];
+
+					if (existingConversation.type === 'private' && enrichedMembers.length == 2) {
+						const otherUser = enrichedMembers.find(m => m._id.toString() !== initiatorId.toString());
+						if (otherUser) {
+							const otherUserConv = await ConversationMember.find({
+								memberId: otherUser._id,
+							}).distinct('conversationId');
+							const currentUserConvs = await ConversationMember.find({
+								memberId: initiatorId
+							}).distinct('conversationId');
+
+							const otherUserConvIds = otherUserConv.map(conv => conv.toString());
+							const currentUserConvIds = currentUserConvs.map(conv => conv.toString());
+
+							const commonConvIds = otherUserConvIds.filter(id =>
+								currentUserConvIds.includes(id) &&
+								id !== existingConversation._id.toString()
+							);
+
+							if (commonConvIds.length > 0) {
+								otherUserCommonGroups = await Conversations.find({
+									_id: { $in: commonConvIds },
+									type: { $in: ['group', 'department'] }
+								}).select('name type avatarGroup').lean().exec();
+							}
+						}
+					}
+
+					const enrichiedMembersForClient = enrichedMembers.map(member => {
+						const memberData = {
+							...member,
+						};
+
+						if (existingConversation.type === 'private' && enrichedMembers.length == 2) {
+							memberData.commonGroups = otherUserCommonGroups;
+						};
+						return memberData;
+					})
 
 					if (existingConversation.lastMessage) {
 						// Ensure lastMessage.sender is populated with user info
 						const lastMessage = await Messages.findById(existingConversation.lastMessage._id)
 							.populate([{
 								path: 'sender',
-								select: 'name avatar'
+								select: 'name avatar status'
 							},
 							{
 								path: 'attachments',
@@ -181,7 +937,26 @@ const setUpSocket = (server) => {
 							.exec();
 
 						if (lastMessage) {
+							// Giải mã nội dung tin nhắn cuối
+							lastMessage.content = encryptionService.decryptMessage(
+								lastMessage.content,
+								existingConversation._id.toString()
+							);
+
+							// Giải mã tên file nếu có attachments
+							if (lastMessage.attachments && lastMessage.attachments.length > 0) {
+								lastMessage.attachments = lastMessage.attachments.map(attachment => ({
+									...attachment,
+									fileName: encryptionService.decryptFileName(
+										attachment.fileName,
+										existingConversation._id.toString()
+									)
+								}));
+							}
+
 							existingConversation.lastMessage = lastMessage;
+						} else {
+							existingConversation.lastMessage = null;
 						}
 					}
 
@@ -189,9 +964,9 @@ const setUpSocket = (server) => {
 
 					const populatedConversation = {
 						...conversationData,
-						members: enrichedMembers
+						members: enrichiedMembersForClient
 					};
-					console.log('Existing conversation:', populatedConversation);
+					// console.log('Existing conversation:', populatedConversation);
 					socket.emit('chat:loaded', {
 						conversation: populatedConversation,
 						isTemporary: false
@@ -243,12 +1018,19 @@ const setUpSocket = (server) => {
 				} else if (conversationType === 'group' || conversationType === 'department') {
 					const conversation = await Conversations.findById(contactId)
 						.populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status').lean().exec();
+					console.log('Group or department conversation found:', conversation);
 
 					if (conversation.lastMessage) {
 						await Messages.populate(conversation.lastMessage, {
 							path: 'sender',
 							select: 'name status'
-						})
+						});
+
+						// Giải mã nội dung tin nhắn cuối
+						conversation.lastMessage.content = encryptionService.decryptMessage(
+							conversation.lastMessage.content,
+							conversation._id.toString()
+						);
 					}
 
 					const members = await ConversationMember.find({
@@ -256,10 +1038,24 @@ const setUpSocket = (server) => {
 					}).populate({
 						path: 'memberId',
 						select: 'name avatar status department position',
-						populate: {
-							path: 'department',
-							select: 'name'
-						}
+						populate: [
+							{
+								path: 'department',
+								select: 'name'
+							},
+							{
+								path: 'role',
+								select: 'permissions',
+								populate: {
+									path: 'permissions',
+									select: 'createGroup createDepartment manageDepartment manageUsers'
+								}
+							},
+							{
+								path: 'customPermissions',
+								select: 'createGroup createDepartment manageDepartment manageUsers'
+							}
+						]
 					}).lean().exec();
 
 					const enrichedMembers = members.map(member => {
@@ -269,6 +1065,27 @@ const setUpSocket = (server) => {
 							role: member.role,
 							permissions: member.permissions
 						};
+
+						// Thêm permissionSystem từ role hoặc customPermissions
+						let systemPermissions = null;
+						if (member.memberId.customPermissions) {
+							// Ưu tiên customPermissions nếu có
+							systemPermissions = member.memberId.customPermissions;
+						} else if (member.memberId.role && member.memberId.role.permissions) {
+							// Sử dụng permissions từ role nếu không có customPermissions
+							systemPermissions = member.memberId.role.permissions;
+						}
+
+						if (systemPermissions) {
+							memberData.permissionSystem = {
+								name: systemPermissions.name,
+								createGroup: systemPermissions.createGroup || false,
+								createDepartment: systemPermissions.createDepartment || false,
+								manageDepartment: systemPermissions.manageDepartment || false,
+								manageUsers: systemPermissions.manageUsers || false
+							};
+						}
+
 						return memberData;
 					});
 
@@ -291,6 +1108,7 @@ const setUpSocket = (server) => {
 		})
 
 		socket.on('create:conversation-group', async (data) => {
+			console.log('Received create group event:', data);
 			const { conversationName, members, type, creator } = data;
 			try {
 				const creatorObj = { _id: creator };
@@ -301,6 +1119,7 @@ const setUpSocket = (server) => {
 					members: members,
 				}
 				const createdConversation = await conversationService.createConvGroup(groupData, creatorObj);
+				console.log('Created group conversation:', createdConversation);
 
 				const formattedConv = {
 					_id: createdConversation._id.toString(),
@@ -333,8 +1152,6 @@ const setUpSocket = (server) => {
 						}
 					}
 				}
-
-				// if (!members.includes(creator)) {
 				const creatorSocketId = userSocketMap.get(creator.toString());
 				if (creatorSocketId) {
 					io.to(creatorSocketId).emit('group:created', {
@@ -342,7 +1159,82 @@ const setUpSocket = (server) => {
 						unreadCount: 0
 					});
 				}
-				// }
+
+			} catch (error) {
+				console.error('Error creating group conversation', error);
+			}
+		});
+		socket.on('create:conversation-department', async (data) => {
+			console.log('Received create department event:', data);
+			const { departmentId, name, creator } = data;
+			try {
+				const creatorObj = { _id: creator };
+
+				const departmentData = {
+					departmentId,
+					name,
+					avatarGroup: ''
+				};
+
+				const createdConversation = await conversationService.createConvDepartment(departmentData, creatorObj);
+				const department = await Department.findById(departmentId).populate('members').lean().exec();
+				if (!department) throw new Error('Department not found');
+
+				const allMembers = [...department.members];
+				if (department.header) allMembers.push(department.header._id);
+
+				const convMembers = await ConversationMember.find({
+					conversationId: createdConversation._id
+				})
+					.populate('memberId', 'name avatar status department position')
+					.lean().exec();
+
+				const formattedConv = {
+					_id: createdConversation._id.toString(),
+					conversationInfo: {
+						_id: createdConversation._id.toString(),
+						type: createdConversation.type,
+						name: createdConversation.name,
+						members: convMembers.map(m => ({
+							_id: m.memberId._id,
+							role: m.role,
+							permissions: m.permissions
+						})),
+						lastMessage: createdConversation.lastMessage || {
+							content: `Welcome to ${createdConversation.name}`,
+							type: 'system',
+							sentAt: new Date(),
+						},
+					},
+					newConversation: {
+						...createdConversation.toObject(),
+						members: convMembers.map(m => ({
+							_id: m.memberId._id,
+							role: m.role,
+							permissions: m.permissions
+						})),
+						creator: creator
+					},
+					creatorId: creator,
+				}
+				for (const member of allMembers) {
+					const memberId = member.toString();
+					const memberSocketId = userSocketMap.get(memberId);
+
+					if (memberSocketId) {
+						io.to(memberSocketId).emit('group:created', {
+							...formattedConv,
+							unreadCount: 1
+						});
+					}
+				}
+				const creatorSocketId = userSocketMap.get(creator.toString());
+				if (creatorSocketId) {
+					io.to(creatorSocketId).emit('group:created', {
+						...formattedConv,
+						unreadCount: 1
+					});
+				}
 			} catch (error) {
 				console.error('Error creating group conversation', error);
 			}
@@ -633,7 +1525,8 @@ const setUpSocket = (server) => {
 				const memberData = {
 					...member.memberId,
 					role: member.role,
-					permissions: member.permissions
+					permissions: member.permissions,
+					joinedAt: member.joinedAt
 				};
 				return memberData;
 			})
@@ -990,7 +1883,7 @@ const setUpSocket = (server) => {
 				conversationId,
 			}).populate({
 				path: 'memberId',
-				select: 'name avatar status department position',
+				select: 'name avatar status department position unreadCount',
 				populate: {
 					path: 'department',
 					select: 'name'
@@ -1087,6 +1980,80 @@ const setUpSocket = (server) => {
 				}
 			}
 		})
+		socket.on('recall:deputy', async (data) => {
+			const { conversationId, currentUserId, deputyId } = data;
+
+			const updatedUser = await conversationService.recallDeputy(conversationId, currentUserId, deputyId);
+
+			const members = await ConversationMember.find({
+				conversationId,
+			}).populate({
+				path: 'memberId',
+				select: 'name avatar status department position',
+				populate: {
+					path: 'department',
+					select: 'name'
+				}
+			})
+				.lean()
+				.exec();
+
+			const enrichedMembers = members.map(member => {
+				const memberData = {
+					...member.memberId,
+					role: member.role,
+					permissions: member.permissions
+				};
+				return memberData;
+			});
+
+			const convIdString = conversationId.toString();
+			socket.to(conversationId).emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newDeputy: updatedUser,
+				}
+			});
+
+			socket.emit('chat:update', {
+				type: 'update_members',
+				data: {
+					conversationId,
+					members: enrichedMembers,
+					newDeputy: updatedUser,
+				}
+			});
+
+			for (const member of members) {
+				const memberIdString = member.memberId._id.toString();
+				const memberSocketId = userSocketMap.get(memberIdString);
+
+				const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+				if (!isInRoom && memberSocketId) {
+					await ConversationMember.findOneAndUpdate(
+						{
+							conversationId: conversationId._id,
+							memberId: member.memberId._id
+						},
+						{ $inc: { unreadCount: 1 } }
+					)
+
+					io.to(memberSocketId).emit('chat:update', {
+						type: 'update_members',
+						data: {
+							conversationId,
+							members: enrichedMembers,
+							newDeputy: updatedUser,
+							unreadCount: 1,
+							isIncrement: true
+						}
+					});
+				}
+			}
+		})
 
 		socket.on('conversation:enter', async (data) => {
 			try {
@@ -1113,11 +2080,20 @@ const setUpSocket = (server) => {
 					conversationId,
 					readBy: readResult.readBy
 				});
-				console.log('User entered conversation:', {
-					userId: userIdString,
-					conversationId,
-					activeConversations: userActiveConversations.get(userIdString)
-				});
+				const typingUsers = await Typing.find({ conversationId })
+					.populate('userId', 'name avatar')
+					.lean()
+
+				if (typingUsers.length > 0) {
+					socket.emit('typing:users', {
+						conversationId,
+						users: typingUsers.map(user => ({
+							_id: user._id,
+							name: user.name,
+							avatar: user.avatar
+						}))
+					});
+				}
 			} catch (error) {
 				console.error('Error entering conversation', error);
 			}
@@ -1150,8 +2126,6 @@ const setUpSocket = (server) => {
 
 				const result = await markMessageAsRead(conversationId, socket.userId);
 
-				// console.log('Marking conversation as read:', result.readBy);
-
 				await ConversationMember.findOneAndUpdate(
 					{
 						conversationId,
@@ -1166,7 +2140,8 @@ const setUpSocket = (server) => {
 					if (memberSocketId && member.memberId.toString() !== socket.userId.toString()) {
 						io.to(memberSocketId).emit('conversation:read', {
 							conversationId,
-							readBy: result.readBy
+							readBy: result.readBy,
+							readById: socket.userId
 						});
 					}
 				})
@@ -1175,12 +2150,59 @@ const setUpSocket = (server) => {
 			}
 		})
 
+		socket.on('typing:start', async (data) => {
+			console.log('Typing event received:', data);
+			try {
+				const { conversationId } = data;
+
+				await Typing.findOneAndUpdate(
+					{ userId: socket.userId, conversationId },
+					{
+						userId: socket.userId,
+						conversationId,
+						timestamp: new Date()
+					},
+					{ upsert: true, new: true }
+				)
+				const user = await Users.findById(socket.userId).select('name avatar').lean().exec()
+				socket.to(conversationId.toString()).emit('user:typing', {
+					conversationId,
+					userData: {
+						_id: user._id,
+						name: user.name,
+						avatar: user.avatar
+					}
+				});
+			} catch (error) {
+				console.error('Error typing start', error);
+			}
+		});
+
+		socket.on('typing:stop', async (data) => {
+			console.log('Typing stop event received:', data);
+			try {
+				const { conversationId } = data;
+
+				await Typing.deleteOne({
+					userId: socket.userId,
+					conversationId
+				})
+				socket.to(conversationId.toString()).emit('user:stopped-typing', {
+					conversationId,
+					userId: socket.userId
+				});
+			} catch (error) {
+				console.error('Error typing start', error);
+			}
+		});
+
 		socket.on('send:message', async (data) => {
 			try {
 				let { conversationId, content, type, replyTo, attachments, tempId } = data;
 				let newConversation = null;
 
 				if (conversationId.startsWith('temp_')) {
+					const originalTempId = conversationId;
 					const tempChatInfo = temporaryChats.get(conversationId);
 					if (!tempChatInfo) {
 						throw new Error('Temporary chat not found');
@@ -1192,7 +2214,7 @@ const setUpSocket = (server) => {
 					temporaryChats.delete(originalTempId);
 
 					socket.emit('chat:created', {
-						oldId: conversationId,
+						oldId: originalTempId,
 						newConversation: {
 							...createdConversation.toObject(),
 							members
@@ -1203,20 +2225,77 @@ const setUpSocket = (server) => {
 				const isMember = await ConversationMember.findOne({
 					conversationId,
 					memberId: socket.userId
+				}).populate({
+					path: 'memberId',
+					select: 'role customPermissions',
+					populate: [
+						{
+							path: 'role',
+							select: 'permissions',
+							populate: {
+								path: 'permissions',
+								select: 'manageDepartment'
+							}
+						},
+						{
+							path: 'customPermissions',
+							select: 'manageDepartment'
+						}
+					]
 				});
-
+				console.log('Is member:', isMember);
 				if (!isMember) {
 					throw new Error('You are not a member of this conversation');
 				}
+
+				// Kiểm tra quyền gửi tin nhắn
+				let canSendMessage = isMember.permissions.canChat;
+
+				// Nếu không có quyền chat thông thường, kiểm tra permissionSystem
+				if (!canSendMessage) {
+					let hasManageDepartmentPermission = false;
+
+					// Kiểm tra customPermissions trước
+					if (isMember.memberId.role.permissions.manageDepartment) {
+						hasManageDepartmentPermission = true;
+					}
+					// Nếu không có customPermissions, kiểm tra role permissions
+					else if (isMember.memberId.role &&
+						isMember.memberId.role.permissions &&
+						isMember.memberId.role.permissions.manageDepartment) {
+						hasManageDepartmentPermission = true;
+					}
+
+					// Nếu có quyền manageDepartment thì cho phép gửi tin nhắn
+					if (hasManageDepartmentPermission) {
+						canSendMessage = true;
+					}
+				}
+
+				if (!canSendMessage) {
+					throw new Error('You do not have permission to send messages in this conversation');
+				}
+				// MÃ HÓA NỘI DUNG TIN NHẮN
+				const encryptedContent = content ? encryptionService.encryptMessage(content, conversationId) : content;
+
+				// Mã hóa tên file trong attachments
+				const encryptedAttachments = attachments.map(attachment => ({
+					...attachment,
+					fileName: attachment.fileName ?
+						encryptionService.encryptFileName(attachment.fileName, conversationId) :
+						attachment.fileName
+				}));
+
 				const messageData = {
 					conversationId,
 					sender: socket.userId,
-					content,
-					type: attachments.length > 0 ? 'multimedia' : type,
+					content: encryptedContent, // Lưu nội dung đã mã hóa
+					type: encryptedAttachments.length > 0 ? 'multimedia' : type,
 					replyTo,
-					attachments,
+					attachments: encryptedAttachments,
 					tempId
 				}
+				console.log('Message data:', messageData);
 				const populatedMessage = await messageService.createMessage({ messageData });
 				const fullyPopulatedMessage = await Messages.findById(populatedMessage._id)
 					.populate('sender', 'name avatar status')
@@ -1261,22 +2340,44 @@ const setUpSocket = (server) => {
 				}
 				const messageStatus = activeRecipients.length > 0 ? 'read' : 'sent';
 
+				// GIẢI MÃ TIN NHẮN TRƯỚC KHI GỬI CHO CLIENT
+				const decryptedMessage = {
+					...fullyPopulatedMessage,
+					content: encryptionService.decryptMessage(fullyPopulatedMessage.content, conversationId),
+					attachments: fullyPopulatedMessage.attachments ?
+						fullyPopulatedMessage.attachments.map(attachment => ({
+							...attachment,
+							fileName: encryptionService.decryptFileName(attachment.fileName, conversationId)
+						})) : []
+				};
+
+				// Giải mã lastMessage trong updatedConv
+				if (updatedConv.lastMessage) {
+					updatedConv.lastMessage.content = encryptionService.decryptMessage(
+						updatedConv.lastMessage.content,
+						conversationId
+					);
+
+					if (updatedConv.lastMessage.attachments && updatedConv.lastMessage.attachments.length > 0) {
+						updatedConv.lastMessage.attachments = updatedConv.lastMessage.attachments.map(attachment => ({
+							...attachment,
+							fileName: encryptionService.decryptFileName(attachment.fileName, conversationId)
+						}));
+					}
+				}
+
+
+				// Emit với data đã được giải mã
 				io.to(conversationId.toString()).emit('message:new', {
-					conversationId: fullyPopulatedMessage.conversationId.toString(),
-					message: {
-						...fullyPopulatedMessage,
-						status: messageStatus
-					},
-					lastMessage: updatedConv.lastMessage,
+					conversationId: conversationId,
+					message: decryptedMessage,
+					// lastMessage: decryptedMessage, // ĐÃ ĐƯỢC GIẢI MÃ
 					unreadCount: 0
-				})
+				});
 
 				socket.emit('message:sent', {
 					success: true,
-					message: {
-						...fullyPopulatedMessage,
-						status: messageStatus
-					},
+					message: decryptedMessage,
 					tempId,
 					conversationId: conversationId
 				});
@@ -1340,10 +2441,11 @@ const setUpSocket = (server) => {
 						}
 					}).lean();
 
-				await Conversations.findByIdAndUpdate(
+				const replyMess = await Conversations.findByIdAndUpdate(
 					populatedMessage.conversationId,
 					{ lastMessage: populatedMessage._id }
 				)
+				console.log('Reply message:', replyMess);
 				const members = await ConversationMember.find({
 					conversationId: populatedMessage.conversationId
 				}).populate('memberId', 'name avatar status department position');
@@ -1398,8 +2500,201 @@ const setUpSocket = (server) => {
 			}
 		})
 
+		socket.on('pin:message', async (data) => {
+			try {
+				const { messageId, conversationId } = data;
+				const pinnedMessage = await messageService.pinnedMessage({ messageId, userId: socket.userId });
+
+				const actorSocketId = socket.userId.toString();
+
+				const actor = await Users.findById(actorSocketId).select('name avatar status department');
+
+				const sytemMessage = await Messages.create({
+					conversationId: pinnedMessage.conversationId,
+					sender: socket.userId,
+					type: 'system',
+					content: `${actor.name} pinned a message`,
+					metadata: {
+						action: 'message_pinned',
+						pinnedBy: {
+							_id: actor._id,
+							name: actor.name
+						},
+						pinnedMessage: pinnedMessage.messageId
+					}
+				});
+
+				const updatedConversation = await Conversations.findByIdAndUpdate(
+					pinnedMessage.conversationId,
+					{
+						lastMessage: sytemMessage._id,
+						$addToSet: { pinnedMessages: pinnedMessage.messageId }
+					},
+					{ new: true }
+				).populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status').lean();
+
+				io.to(conversationId).emit('message:pin-success', {
+					success: true,
+					message: pinnedMessage.messageId,
+					conversationId: pinnedMessage.conversationId,
+					isPinned: true,
+					userPinned: pinnedMessage.userPinned,
+					actor,
+					lastMessage: sytemMessage,
+					conversation: updatedConversation
+				});
+				const members = await ConversationMember.find({
+					conversationId: pinnedMessage.conversationId
+				});
+				let updatedUnreadCount = null;
+				for (const member of members) {
+					const recipientSocketId = userSocketMap.get(member.memberId.toString());
+					if (recipientSocketId === actor._id.toString()) continue;
+					const isInRoom = isUserActiveInConversation(member.memberId.toString(), pinnedMessage.conversationId.toString());
+
+					if (!isInRoom && recipientSocketId) {
+						const updatedMember = await ConversationMember.findOneAndUpdate(
+							{
+								conversationId: pinnedMessage.conversationId,
+								memberId: member.memberId
+							},
+							{ $inc: { unreadCount: 1 } },
+							{ new: true }
+						)
+						updatedUnreadCount = updatedMember.unreadCount;
+					}
+					if (recipientSocketId) {
+						io.to(recipientSocketId).emit('message:pin-success', {
+							success: true,
+							message: pinnedMessage.messageId,
+							conversationId: pinnedMessage.conversationId,
+							isPinned: true,
+							userPinned: pinnedMessage.userPinned,
+							actor,
+							lastMessage: sytemMessage,
+							conversation: updatedConversation,
+							isIncrement: !isInRoom,
+							unreadCount: updatedUnreadCount
+						});
+					}
+				}
+			} catch (error) {
+				console.error('Error pinning message', error);
+				socket.emit('message:error', {
+					error: error.message,
+					tempId: data.tempId
+				})
+			}
+		})
+
+		socket.on('unpin:message', async (data) => {
+			console.log('Unpin message event received:', data);
+			try {
+				const { messageId, conversationId } = data;
+				const unpinnedMessage = await messageService.unpinnedMessage({ messageId, userId: socket.userId });
+
+				const actorSocketId = socket.userId.toString();
+
+				const actor = await Users.findById(actorSocketId).select('name avatar status department');
+
+				const sytemMessage = await Messages.create({
+					conversationId: unpinnedMessage.conversationId,
+					sender: socket.userId,
+					type: 'system',
+					content: `${actor.name} unpinned a message`,
+					metadata: {
+						action: 'message_unpinned',
+						pinnedBy: {
+							_id: actor._id,
+							name: actor.name
+						},
+						pinnedMessage: unpinnedMessage.messageId
+					}
+				});
+
+				const updatedConversation = await Conversations.findByIdAndUpdate(
+					unpinnedMessage.conversationId,
+					{
+						lastMessage: sytemMessage._id,
+						$addToSet: { pinnedMessages: unpinnedMessage.messageId }
+					},
+					{ new: true }
+				).populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status metadata').lean();
+
+				io.to(conversationId).emit('message:unpin-success', {
+					success: true,
+					message: unpinnedMessage.messageId,
+					conversationId: unpinnedMessage.conversationId,
+					isPinned: false,
+					userPinned: unpinnedMessage.userPinned,
+					actor,
+					lastMessage: updatedConversation.lastMessage,
+					conversation: updatedConversation
+				});
+
+				const members = await ConversationMember.find({
+					conversationId: unpinnedMessage.conversationId
+				});
+				let updatedUnreadCount = null;
+				for (const member of members) {
+					const recipientSocketId = userSocketMap.get(member.memberId.toString());
+					if (recipientSocketId === actor._id.toString()) continue;
+					const isInRoom = isUserActiveInConversation(member.memberId.toString(), unpinnedMessage.conversationId.toString());
+
+					if (!isInRoom && recipientSocketId) {
+						const updatedMember = await ConversationMember.findOneAndUpdate(
+							{
+								conversationId: unpinnedMessage.conversationId,
+								memberId: member.memberId
+							},
+							{ $inc: { unreadCount: 1 } },
+							{ new: true }
+						)
+						updatedUnreadCount = updatedMember.unreadCount;
+					}
+					if (recipientSocketId) {
+						io.to(recipientSocketId).emit('message:unpin-success', {
+							success: true,
+							message: unpinnedMessage.messageId,
+							conversationId: unpinnedMessage.conversationId,
+							isPinned: false,
+							userPinned: unpinnedMessage.userPinned,
+							actor,
+							lastMessage: updatedConversation.lastMessage,
+							conversation: updatedConversation,
+							isIncrement: !isInRoom,
+							unreadCount: updatedUnreadCount
+						});
+					}
+				}
+			} catch (error) {
+				console.error('Error unpinning message', error);
+				socket.emit('message:error', {
+					error: error.message,
+					tempId: data.tempId
+				})
+			}
+		});
+
+		socket.on('pin:conversation', async (data) => {
+			try {
+				const { conversationId } = data;
+				const pinnedConversation = await conversationService.pinConversation(conversationId, socket.userId.toString());
+				socket.emit('conversation:pin-success', {
+					success: true,
+					conversationId: pinnedConversation._id,
+					isPinned: pinnedConversation.isPinned
+				});
+			} catch (error) {
+				console.error('Error pinning conversation', error);
+				socket.emit('message:error', {
+					error: error.message,
+					tempId: data.tempId
+				})
+			}
+		})
+
 		socket.on('recall:message', async (data) => {
-			// console.log('Received recall:message event:', data);
 			try {
 				const { messageId, recallType, conversationId } = data;
 				const recalledMessage = await messageService.recallMessage({ messageId, userId: socket.userId, recallType });
@@ -1409,7 +2704,6 @@ const setUpSocket = (server) => {
 					{ lastMessage: recalledMessage._id },
 					{ new: true }
 				).populate('lastMessage', 'content type createdAt attachments sentAt sender isRecalled isEdited status');
-
 
 				const actorSocketId = socket.userId.toString();
 
@@ -1456,6 +2750,7 @@ const setUpSocket = (server) => {
 							data: {
 								messageId: recalledMessage.messageId,
 								recallType: recalledMessage.recallType,
+								message: recalledMessage,
 								actor,
 								conversationId: recalledMessage.conversationId
 							}
@@ -1477,12 +2772,13 @@ const setUpSocket = (server) => {
 				const { messageId, emoji } = data;
 				const updatedMessage = await messageService.reactToMessage({ messageId, userId: socket.userId, emoji });
 				// console.log('Updated message after reaction:', updatedMessage);
-				socket.emit('message:react-success', {
+				io.to(updatedMessage.conversationId.toString()).emit('message:react-success', {
 					success: true,
 					messageId: updatedMessage._id,
 					conversationId: updatedMessage.conversationId,
 					reactions: updatedMessage.reactions
 				});
+			
 			} catch (error) {
 				console.error('Error reacting to message', error);
 				socket.emit('message:error', {
@@ -1496,12 +2792,13 @@ const setUpSocket = (server) => {
 			try {
 				const { messageId, emoji } = data;
 				const updatedMessage = await messageService.removeReaction({ messageId, userId: socket.userId, emoji });
-				socket.emit('message:react-success', {
+				io.to(updatedMessage.conversationId.toString()).emit('message:react-success', {
 					success: true,
 					messageId: updatedMessage._id,
 					conversationId: updatedMessage.conversationId,
 					reactions: updatedMessage.reactions
 				});
+			
 			} catch (error) {
 				console.error('Error removing reaction from message', error);
 				socket.emit('message:error', {
@@ -1553,6 +2850,242 @@ const setUpSocket = (server) => {
 			}
 		})
 
+		socket.on('call:initiate', async (data) => {
+			console.log('Call event received:', data);
+			const { conversationId, type, recipientId } = data;
+
+			if (!socket.userId) {
+				console.warn('User ID not found in socket:', socket.id);
+				socket.emit('call:error', { error: 'User ID not found' });
+				return;
+			}
+
+			const recipientSocketId = userSocketMap.get(recipientId.toString());
+			if (!recipientSocketId) {
+				console.warn('Recipient not connected:', recipientId);
+				socket.emit('call:error', { error: 'Recipient not connected' });
+				return;
+			}
+
+			try {
+				const initiatorUser = await Users.findById(socket.user).select('name avatar').leant();
+
+				if (!initiatorUser) {
+					console.warn('Initiator user not found:', socket.userId);
+					socket.emit('call:error', { error: 'Initiator user not found' });
+					return;
+				}
+
+				const newCall = new Call({
+					conversationId,
+					initiator: socket.userId,
+					type,
+					participants: [
+						{ user: socket.userId, status: 'answered', joinedAt: new Date() },
+						{ user: recipientId, status: 'ringing' }
+					],
+					status: 'started',
+					startTime: new Date()
+				});
+				await newCall.save();
+
+				console.log(`New call ${newCall._id} initiated by ${socket.userId} to ${recipientId}`);
+
+				const conversation = await Conversations.findById(conversationId).populate('members.memberId').lean();
+				let conversationName = 'Private Chat';
+
+				if (conversation && conversation.type === 'private' && conversation.members?.length == 2) {
+					const otherMember = conversation.members.find(member => member.memberId._id.toString() !== socket.userId.toString());
+					if (otherMember) {
+						conversationName = otherMember.memberId.name;
+					}
+				} else if (conversation && conversation.type === 'group') {
+					conversationName = conversation.name || 'Group Chat';
+				} else if (conversation && conversation.type === 'department') {
+					conversationName = conversation.name || 'Department Chat';
+				}
+
+				consoleg.log(`Emitting call:incoming to recipient ${recipientId}`);
+				io.to(recipientSocketId).emit('call:incoming', {
+					callId: newCall._id,
+					initiator: {
+						_id: initiatorUser._id,
+						name: initiatorUser.name,
+						avatar: initiatorUser.avatar
+					},
+					conversationId,
+					type: newCall.type,
+					conversationName: initiatorUser.name,
+				})
+				setTimeout(async () => checkMissedCall(newCall._id), 30000);
+			} catch (error) {
+				console.error('Error initiating call', error);
+				socket.emit('call:error', { error: error.message });
+			}
+		});
+
+		socket.on('call:answer', async (data) => {
+			console.log('Call answer event received:', data);
+			const { callId } = data;
+
+			if (!socket.userId) return;
+
+			try {
+				const call = await Call.findById(callId);
+
+				if (!call) {
+					console.warn('Call not found:', callId);
+					return;
+				}
+
+				const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
+				if (participant && participants.status === 'ringing') {
+					participant.status = 'answered';
+					participant.joinedAt = new Date();
+
+					await call.save();
+					console.log(`User ${socket.userId} answered call ${callId}`);
+
+					const initiatorSocketId = userSocketMap.get(call.initiator.toString());
+					if (initiatorSocketId && initiatorSocketId !== socket.id) {
+						console.log(`Notifying initiator ${call.initiator} about call answer`);
+						io.to(initiatorSocketId).emit('call:answered', {
+							callId,
+							answeredId: socket.userId,
+						})
+					} else {
+						console.warn('Initiator not connected:', call.initiator);
+						socket.emit('call:error', { error: 'Initiator not connected' });
+						return;
+					}
+				}
+			} catch (error) {
+				console.error('Error answering call', error);
+				socket.emit('call:error', { error: error.message });
+			}
+		});
+
+		socket.on('call:decline', async (data) => {
+			console.log(`Call decline event received:`, data);
+			const { callId } = data;
+
+			if (!socket.userId) return;
+
+			try {
+				const call = await Call.findById(callId);
+				if (!call) {
+					console.warn('Call not found:', callId);
+					return;
+				}
+				const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
+				if (participant && participant.status === 'ringing') {
+					participant.status = 'declined';
+					call.status = 'declined';
+					call.endTime = new Date();
+					await call.save();
+					console.log(`User ${socket.userId} declined call ${callId}`);
+
+					await logCallSystemMessage(call);
+
+					const initiatorSocketId = userSocketMap.get(call.initiator.toString());
+					if (initiatorSocketId && initiatorSocketId !== socket.id) {
+						console.log(`Notifying initiator ${call.initiator} about call decline`);
+						io.to(initiatorSocketId).emit('call:declined', {
+							callId,
+							declinedId: socket.userId,
+						})
+					}
+				}
+			} catch (error) {
+				console.error('Error declining call', error);
+				socket.emit('call:error', { error: error.message });
+			}
+		})
+
+		socket.on('call:end', async (data) => {
+			console.log('Call end event received:', data);
+			const { callId } = data;
+
+			if (!socket.userId) return;
+
+			try {
+				const call = await Call.findById(callId);
+				if (!call) {
+					console.warn('Call not found:', callId);
+					return;
+				}
+				const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
+				if (participant && participant.status !== 'ended') {
+					participant.status = 'left';
+
+					call.status = 'completed';
+					call.endTime = new Date();
+					await call.save();
+					console.log(`User ${socket.userId} ended call ${callId}`);
+
+					await logCallSystemMessage(call);
+
+					const otherParticipant = call.participants.find(p => p.user.toString() !== socket.userId.toString());
+					if (otherParticipant) {
+						const otherSocketId = userSocketMap.get(otherParticipant.user.toString());
+						if (otherSocketId && otherSocketId !== socket.id) {
+							console.log(`Notifying other participant ${otherParticipant.user} about call end`);
+							io.to(otherSocketId).emit('call:ended', {
+								callId,
+								status: call.status,
+								endedBy: socket.userId,
+							})
+						}
+					}
+					socket.emit('call-ended', {
+						callId,
+						status: call.status,
+						endedBy: socket.userId,
+					})
+				}
+			} catch (error) {
+				console.error('Error ending call', error);
+				socket.emit('call:error', { error: error.message });
+			}
+		})
+		const checkMissedCall = async (callId) => {
+			const call = await Call.findById(callId);
+
+			if (call && call.status === 'started') {
+				call.status = 'missed';
+				call.endTime = new Date();
+				await call.save();
+				console.log(`Call ${callId} marked as missed`);
+				await logCallSystemMessage(call);
+
+				call.participants.forEach(async (participant) => {
+					const pSocketId = userSocketMap.get(participant.user.toString());
+					if (pSocketId) {
+						io.to(pSocketId).emit('call:missed', {
+							callId,
+							status: call.status,
+						})
+					}
+				})
+			}
+		}
+
+		socket.on('signal', (data) => {
+			console.log(`Signal received from ${socket.userId}:`, data);
+
+			const { callId, signalData, recipientId } = data;
+			const recipientSocketId = userSocketMap.get(recipientId.toString());
+			if (recipientSocketId) {
+				console.log(`Forwarding signal to recipient ${recipientId}`);
+				io.to(recipientSocketId).emit('signal', {
+					callId,
+					signalData,
+					senderId: socket.userId
+				});
+			} else {
+				console.warn(`Recipient ${recipientId} not connected`);
+			}
+		})
 		socket.on('user:logout', async () => {
 			console.log(`User logged out: ${socket.userId}`);
 			await Users.findByIdAndUpdate(socket.userId, {
@@ -1564,6 +3097,20 @@ const setUpSocket = (server) => {
 				status: 'offline'
 			});
 			socket.disconnect(true);
+		})
+
+		socketService.setSocketInstance(socket, io, helpers);
+
+		socket.on('user:logout', async () => {
+			await Users.findByIdAndUpdate(socket.userId, {
+				status: 'offline',
+				lastActive: new Date()
+			});
+
+			io.emit('user:status', {
+				userId: socket.userId,
+				status: 'offline'
+			})
 		})
 
 		socket.on('disconnect', async () => {
@@ -1579,10 +3126,55 @@ const setUpSocket = (server) => {
 			}
 			userSocketMap.delete(socket.userId.toString());
 			socketUserMap.delete(socket.id);
-			socket.broadcast.emit('user:status', {
+			try {
+				const onGoingCalls = await Call.find({
+					'participants.user': socket.userId,
+					status: { $in: ['started'] }
+
+				})
+				for (const call of onGoingCalls) {
+
+					const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
+					if (participant) {
+						participant.status = 'left';
+						call.status = 'completed';
+						call.endTime = new Date();
+						await call.save();
+						await logCallSystemMessage(call);
+					}
+					if (call.participants.length === 2) {
+						call.status = participant.status === 'left' ? 'failed' : 'message'
+						call.endTime = new Date();
+
+						await call.save();
+
+						console.log(`Call ${call._id} marked as missed`);
+
+						await logCallSystemMessage(call);
+
+						const otherParticipant = call.participants.find(p => p.user.toString() !== socket.userId.toString());
+						if (otherParticipant) {
+							const otherSocketId = userSocketMap.get(otherParticipant.user.toString());
+							if (otherSocketId && otherSocketId !== socket.id) {
+								console.log(`Notifying other participant ${otherParticipant.user} about call end`);
+								io.to(otherSocketId).emit('call:ended', {
+									callId: call._id,
+									status: call.status,
+									diasconnectUserUd: socket.userId
+								})
+							}
+						}
+					}
+					await call.save();
+				}
+			} catch (error) {
+				console.error('Error deleting typing status', error);
+			}
+			io.emit('user:status', {
 				userId: socket.userId,
 				status: 'offline'
 			});
+
 			await Typing.deleteMany({ userId: socket.userId });
 		});
 	});
@@ -1651,7 +3243,7 @@ const setUpSocket = (server) => {
 		}
 	}
 
-	const createConversation = async (data, initiatorId) => {
+	const createConversation = async (tempChatInfo, initiatorId) => {
 		const newConversation = await Conversations.create({
 			type: 'private',
 			creator: initiatorId,
@@ -1683,10 +3275,17 @@ const setUpSocket = (server) => {
 					canAssignDeputies: false,
 				}
 			}];
-		await ConversationMember.insertMany(memberData);
+		try {
+			await ConversationMember.insertMany(memberData);
+			console.log('New conversation created:', newConversation._id);
+		} catch (error) {
+			console.error('Error creating conversation:', error);
+			await Conversations.deleteOne({ _id: newConversation._id });
+			throw new Error('Failed to create conversation members');
+		}
 		const members = await ConversationMember.find({
 			conversationId: newConversation._id
-		}).populate('memberId', 'name avatar status');
+		}).populate('memberId', 'name avatar status').populate('department', 'name').lean();
 
 		return {
 			newConversation,
@@ -1776,6 +3375,39 @@ const setUpSocket = (server) => {
 					console.error('Message not found');
 					return false;
 				}
+				// ADD DECRYPTION HERE:
+				const decryptedMessage = {
+					...populatedMessage,
+					content: encryptionService.decryptMessage(
+						populatedMessage.content,
+						message.conversationId.toString()
+					),
+					attachments: populatedMessage.attachments ?
+						populatedMessage.attachments.map(attachment => ({
+							...attachment,
+							fileName: encryptionService.decryptFileName(
+								attachment.fileName,
+								message.conversationId.toString()
+							)
+						})) : []
+				};
+				// Also decrypt replyTo message if it exists
+				if (decryptedMessage.replyTo && decryptedMessage.replyTo.content) {
+					decryptedMessage.replyTo.content = encryptionService.decryptMessage(
+						decryptedMessage.replyTo.content,
+						message.conversationId.toString()
+					);
+
+					if (decryptedMessage.replyTo.attachments) {
+						decryptedMessage.replyTo.attachments = decryptedMessage.replyTo.attachments.map(attachment => ({
+							...attachment,
+							fileName: encryptionService.decryptFileName(
+								attachment.fileName,
+								message.conversationId.toString()
+							)
+						}));
+					}
+				}
 
 				const isSenderActive = isUserActiveInConversation(message.sender._id.toString(), message.conversationId.toString());
 				const isRecipientActive = isUserActiveInConversation(recipientId.toString(), message.conversationId.toString());
@@ -1832,9 +3464,9 @@ const setUpSocket = (server) => {
 
 				const fullMessagePayload = {
 					conversationId: conversationIdString,
-					message: populatedMessage,
+					message: decryptedMessage,
 					unreadCount: currentUnreadCount,
-					lastMessage: updatedConversation.lastMessage
+					lastMessage: decryptedMessage,
 				};
 
 				if (recipientSocketId) {
@@ -1869,304 +3501,10 @@ const setUpSocket = (server) => {
 			return false;
 		}
 	};
-
-	const createPersonalizedSystemmessage = async ({ conversationId, actorId, action, data = {} }) => {
-		try {
-			const members = await ConversationMember.find({ conversationId })
-				.populate('memberId', 'name')
-				.lean()
-				.exec();
-
-			let actorName = 'Unknown';
-			let actor = members.find(member => member.memberId._id.toString() === actorId.toString());
-
-			if (!actor && action === 'remove_member') {
-				if (data.actorInfo) {
-					actor = data.actorInfo.name || 'Unknown';
-				} else {
-					try {
-						const actorUser = await Users.findById(actorId).lean().exec();
-						if (actorUser) {
-							actorName = actorUser.name;
-						}
-					} catch (error) {
-						console.error('Error getting actor info', error);
-					}
-				}
-			} else if (actor) {
-				actorName = actor.memberId.name;
-			} else {
-				throw new Error('Actor not found in conversation');
-			}
-
-			if (!actor) {
-				throw new Error('Actor not found in conversation');
-			}
-
-			const contentGroups = {};
-			const messages = [];
-
-			for (const member of members) {
-				const memberId = member.memberId._id.toString();
-				let content = '';
-
-				switch (action) {
-					case 'create_conversation':
-						content = `Welcome to ${data.conversationName}`;
-						break;
-					// case 'update_name':
-					// 	if (memberId.toString() === actorId.toString()) {
-					// 		content = `You changed the conversation name to ${data.newName}`;
-					// 	} else {
-					// 		content = `${actor.memberId.name} changed the conversation name to ${data.newName}`;
-					// 	}
-					// 	break;
-					case 'update_avatar':
-						if (memberId.toString() === actorId.toString()) {
-							content = `You changed the conversation avatar`;
-						} else {
-							content = `${actor.memberId.name} changed the conversation avatar`;
-						}
-						break;
-					case 'update_role':
-						if (memberId.toString() === actorId.toString()) {
-							if (data.newRole === 'admin') {
-								content = `You are now an admin`;
-							} else if (data.newRole === 'deputy_admin') {
-								content = `You are now a deputy admin`;
-							} else {
-								if (data.newRole !== 'admin') {
-									content = `${actor.memberId.name} is now an admin`;
-								} else if (data.newRole !== 'deputy_admin') {
-									content = `${actor.memberId.name} is now a deputy admin`;
-								};
-							}
-						}
-						break;
-					default:
-						content = `Unknown action: ${action}`;
-						break;
-				}
-				if (content) {
-					if (!contentGroups[content]) {
-						contentGroups[content] = [];
-					}
-					contentGroups[content].push(memberId);
-				}
-			}
-			console.log("Content groups: ", contentGroups);
-			for (const [content, recipientIds] of Object.entries(contentGroups)) {
-				let messageData = {
-					conversationId,
-					sender: actorId,
-					content,
-					type: 'text',
-					metaData: {
-						action,
-						personalizedForGroup: recipientIds,
-						...data
-					},
-					readBy: []
-				};
-				if (action === 'recall_message') {
-					messageData.type = 'text';
-					messageData.metaData.personalizedForRecall = recipientIds;
-					delete messageData.metaData.personalizedForGroup;
-				} else {
-					messageData.type = 'system';
-				}
-
-				for (const recipientId of recipientIds) {
-
-					if (isUserActiveInConversation(recipientId, conversationId.toString())) {
-						messageData.readBy.push({
-							user: recipientId,
-							readAt: new Date()
-						})
-					}
-
-				}
-				if (messageData.readBy.length > 0) {
-					messageData.status = 'read';
-				} else {
-					messageData.status = 'sent'
-				}
-				console.log('Creating message:', messageData); // Debugging
-
-
-				const message = new Messages(messageData);
-				const savedMessage = await message.save();
-				messages.push(savedMessage);
-
-				await Conversations.findByIdAndUpdate(conversationId, {
-					lastMessage: savedMessage._id,
-					updatedAt: new Date()
-				});
-
-				for (const recipientId of recipientIds) {
-					await sendMessageToRecipient(savedMessage, recipientId);
-				}
-
-			}
-			return messages;
-		} catch (error) {
-			throw new Error(`Failed to create personalized system message: ${error.message}`);
-		}
-	}
-
-	const sendSystemMessage = async (message) => {
-		try {
-			if (message.metaData && message.metaData.personalizedFor) {
-
-				const recipientId = message.metaData.personalizedFor.toString();
-				await sendMessageToRecipient(message, recipientId);
-			} else if (message.metaData && message.metaData.personalizedForGroup) {
-				let sentCount = 0;
-				for (const recipientId of message.metaData.personalizedForGroup) {
-					const sent = await sendMessageToRecipient(message, recipientId);
-					if (sent) sentCount++;
-				}
-				console.log(`System message sent to ${sentCount}/${message.metaData.personalizedForGroup.length} members`);
-			} else {
-				const conversationMembers = await ConversationMember.find({
-					conversationId: message.conversationId
-				}).select('memberId').lean();
-
-				let sentCount = 0;
-				for (const member of conversationMembers) {
-
-					const memberId = member.memberId.toString();
-					const sent = await sendMessageToRecipient(message, memberId);
-					if (sent) sentCount++;
-				}
-				// console.log(`System message sent to ${sentCount}/${conversation.length} members`);
-			}
-		} catch {
-			console.error('Error sending system message', error);
-		}
-	}
-	const notifyUserUpdate = async (updatedUser) => {
-		try {
-			io.emit('user:update', {
-				user: updatedUser
-			})
-
-			io.emit('user:status', {
-				userId: updatedUser._id,
-				status: updatedUser.status
-			})
-		} catch (error) {
-			console.error('Error notifying user update', error);
-		}
-	}
-
-	const notifyUserCreated = async (newUser) => {
-		try {
-			io.emit('user:create', {
-				user: newUser
-			})
-		} catch (error) {
-			console.error('Error notifying user create', error);
-		}
-	}
-
-	const sendNotification = async (notification) => {
-		try {
-			const newNotification = await notification.save();
-
-			const populatedNotification = await Notifications.findById(newNotification._id)
-				.populate('sender', 'name avatar')
-				.populate('received', 'name avatar');
-
-			const recipientSocketId = userSocketMap.get(notification.received.toString());
-
-			if (recipientSocketId) {
-				io.to(recipientSocketId).emit('notification:new', populatedNotification);
-
-				const count = await Notifications.countDocuments({
-					received: notification.received,
-					isRead: false
-				});
-
-				io.to(recipientSocketId).emit('notification:count', { count });
-			}
-		} catch {
-			console.error('Error sending notification', error);
-		}
-	};
-
-
-	const notifyDepartmentConversationCreated = async (conversation) => {
-		try {
-			const populatedConversation = await ConversationMember.find({
-				conversationId: conversation._id
-			}).populate('memberId', 'name avatar status').lean();
-
-			const departmentMembers = await Users.find({
-				department: conversation.departmentId
-			}).select('_id').lean();
-
-			for (const member of departmentMembers) {
-				const memberSocketId = userSocketMap.get(member._id.toString());
-
-				if (memberSocketId) {
-					const socket = io.sockets.sockets.get(memberSocketId);
-					if (socket) {
-						socket.join(`conversation:${conversation._id}`);
-					}
-
-					io.to(memberSocketId).emit('department-conversation:created', {
-						converastion: populatedConversation,
-						department: {
-							_id: conversation.departmentId,
-							name: conversation.departmentId.name
-						}
-					})
-				}
-			}
-		} catch (error) {
-			console.error('Error notifying department conversation created', error);
-		}
-	}
-
-	const notifyDepartmentConversationUpdated = async (conversation) => {
-		try {
-			const members = await ConversationMember.find({
-				conversationId: conversation._id
-			}).populate('memberId', 'name avatar status').lean().exec();
-
-			const department = await Department.findById(conversation.departmentId)
-				.select('_id name')
-				.lean()
-				.exec();
-
-			io.to(`conversation:${conversation._id}`).emit('department-conversation:updated', {
-				conversation: {
-					...conversation,
-					members
-				},
-				department: department || {
-					_id: conversation.departmentId,
-					name: 'Unknown'
-				}
-			});
-		} catch (error) {
-			console.error('Error notifying department conversation updated', error);
-		}
-	}
-
 	return {
 		io,
 		userSocketMap,
-		sendNotification,
-		sendSystemMessage,
-		createPersonalizedSystemmessage,
-		markMessageAsRead,
-		notifyDepartmentConversationCreated,
-		notifyDepartmentConversationUpdated,
-		notifyUserUpdate,
-		notifyUserCreated,
-		sendMessageToRecipient
+		...helpers,
 	};
 }
 

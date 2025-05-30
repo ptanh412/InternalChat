@@ -4,6 +4,7 @@ const Messages = require('../models/Messages');
 const Conversations = require("../models/Conversations");
 const fileService = require("./fileService");
 const File = require("../models/File");
+const encryptionService = require("../utils/encryptionMsg");
 
 const createSystemMessage = async ({ conversationId, sender, content, metaData = {} }) => {
     try {
@@ -27,19 +28,53 @@ const createSystemMessage = async ({ conversationId, sender, content, metaData =
 const createMessage = async ({ messageData }) => {
     console.log('Creating message:', messageData);
     try {
-        const isMember = await ConversationMember.findOne({
+         const isMember = await ConversationMember.findOne({
             conversationId: messageData.conversationId,
             memberId: messageData.sender
+        }).populate({
+            path: 'memberId',
+            select: 'role customPermissions',
+            populate: [
+                {
+                    path: 'role',
+                    select: 'permissions',
+                    populate: {
+                        path: 'permissions',
+                        select: 'manageDepartment'
+                    }
+                },
+                {
+                    path: 'customPermissions',
+                    select: 'manageDepartment'
+                }
+            ]
         });
+
+        console.log('Is member:', isMember);
 
         if (!isMember) {
             throw new Error('You are not a member of this conversation');
         };
 
-        if (!isMember.permissions.canChat) {
-            throw new Error('You do not have permission to chat in this conversation');
+        let canSendMessage = isMember.permissions.canChat;
+
+        if (!canSendMessage) {
+            let hasManageDepartmentPermission = false;
+
+            if (isMember.memberId.role.permissions.manageDepartment){
+                hasManageDepartmentPermission  =true;
+            }else if (isMember.memberId.role && isMember.memberId.role.permissions && isMember.memberId.role.permissions.manageDepartment) {
+                hasManageDepartmentPermission = false;
+            }
+
+            if (hasManageDepartmentPermission){
+                canSendMessage = true;
+            }
         }
 
+        if (!canSendMessage){
+            throw new Error('You do not have permission to send messages in this conversation');
+        }
       
 
         let processAttachments = [];
@@ -85,6 +120,7 @@ const createMessage = async ({ messageData }) => {
 
 const replyMessage = async ({ messageId, userId, content }) => {
     try {
+        console.log('Replying to message:', { messageId, userId, content });
         const message = await Messages.findById(messageId);
         if (!message) {
             throw new Error('Message not found');
@@ -122,20 +158,6 @@ const replyMessage = async ({ messageId, userId, content }) => {
                 }]
             })
             .lean();
-        const members = await ConversationMember.find({ conversationId: message.conversationId });
-        for (const member of members) {
-            const recipientSocketId = socketService.getSocket().userSocketMap.get(member.memberId.toString());
-            if (recipientSocketId) {
-                socketService.getSocket().io.to(recipientSocketId).emit('message:reply-success', {
-                    messageId: replyMessage._id,
-                    conversationId: message.conversationId,
-                    replyTo: message.replyTo,
-                    sender: updatedMessage.sender,
-                    content: updatedMessage.content,
-                    senAt: updatedMessage.createdAt,
-                });
-            }
-        };
         return updatedMessage;
     } catch (error) {
         throw new Error(`Failed to reply message: ${error.message}`);
@@ -180,6 +202,61 @@ const editMessage = async ({ messageId, userId, content }) => {
         return updatedMessage;
     } catch (error) {
         throw new Error(`Failed to edit message: ${error.message}`);
+    }
+}
+
+const pinnedMessage = async ({ messageId, userId }) => {
+    try {
+        const message = await Messages.findOne({
+            _id: messageId,
+            sender: userId
+        });
+
+        if (!message) {
+            throw new Error('Message not found');
+        };
+        
+        message.isPinned = true;
+        message.userPinned = userId;
+        message.updatedAt = new Date();
+        await message.save();
+       
+        return {
+            messageId: message._id,
+            conversationId: message.conversationId,
+            isPinned: message.isPinned,
+            userPinned: message.userPinned,
+        }
+    } catch (error) {
+        throw new Error(`Failed to pin message: ${error.message}`);
+    }
+}
+
+const unpinnedMessage = async ({ messageId, userId }) => {
+    console.log('Unpinning message:', { messageId, userId });
+    try {
+        const message = await Messages.findOne({
+            _id: messageId,
+            sender: userId
+        });
+
+        if (!message) {
+            throw new Error('Message not found');
+        };
+        
+        message.isPinned = false;
+        message.userPinned = userId;
+        message.updatedAt = new Date();
+        await message.save();
+        
+        return {
+            messageId: message._id,
+            conversationId: message.conversationId,
+            isPinned: message.isPinned,
+            userPinned: message.userPinned,
+        }
+    } catch (error) {
+        throw new Error(`Failed to unpin message: ${error.message}`);
     }
 }
 
@@ -255,22 +332,6 @@ const reactToMessage = async ({ messageId, userId, emoji }) => {
             .populate('replyTo', 'content sender')
             .populate('reactions.user', 'name avatar')
             .lean();
-
-        const members = await ConversationMember.find({ conversationId: message.conversationId });
-        console.log('Members:', members);
-
-        for (const member of members) {
-            const recipientSocketId = socketService.getSocket().userSocketMap.get(member.memberId.toString());
-            console.log('Recipient Socket ID:', recipientSocketId);
-            if (recipientSocketId) {
-                socketService.getSocket().io.to(recipientSocketId).emit('message:react-success', {
-                    messageId: message._id,
-                    conversationId: message.conversationId,
-                    reactions: updatedMessage.reactions,
-                    emoji
-                });
-            }
-        }
         return updatedMessage;
     } catch (error) {
         throw new Error(`Failed to react to message: ${error.message}`);
@@ -313,19 +374,6 @@ const removeReaction = async ({ messageId, userId, emoji }) => {
             .populate('replyTo', 'content sender')
             .populate('reactions.user', 'name avatar')
             .lean();
-
-        const members = await ConversationMember.find({ conversationId: message.conversationId });
-        for (const member of members) {
-            const recipientSocketId = socketService.getSocket().userSocketMap.get(member.memberId.toString());
-            if (recipientSocketId) {
-                socketService.getSocket().io.to(recipientSocketId).emit('message:react-success', {
-                    messageId: message._id,
-                    conversationId: message.conversationId,
-                    reactions: updatedMessage.reactions,
-                    emoji
-                });
-            }
-        }
         return updatedMessage;
     } catch (error) {
         throw new Error(`Failed to remove reaction: ${error.message}`);
@@ -341,13 +389,38 @@ const getMessageByConversationId = async (conversationId) => {
             .populate('reactions.user', 'name avatar')
             .populate('readBy.user', 'name avatar status')
             .lean();
-        return messages; 
+        
+        // Decrypt messages before returning to client
+        const decryptedMessages = messages.map(message => {
+            const decryptedMessage = {
+                ...message,
+                content: message.content ? encryptionService.decryptMessage(message.content, conversationId) : message.content,
+                attachments: message.attachments ? message.attachments.map(attachment => ({
+                    ...attachment,
+                    fileName: attachment.fileName ? encryptionService.decryptFileName(attachment.fileName, conversationId) : attachment.fileName
+                })) : []
+            };
+
+            // Also decrypt replyTo message content if it exists
+            if (decryptedMessage.replyTo && decryptedMessage.replyTo.content) {
+                decryptedMessage.replyTo.content = encryptionService.decryptMessage(
+                    decryptedMessage.replyTo.content,
+                    conversationId
+                );
+            }
+
+            return decryptedMessage;
+        });
+        
+        return decryptedMessages; 
     } catch (error) {
         throw new Error(`Failed to get messages: ${error.message}`);
     }
 };
 module.exports = {
     createSystemMessage,
+    pinnedMessage,
+    unpinnedMessage,
     createMessage,
     editMessage,
     recallMessage,

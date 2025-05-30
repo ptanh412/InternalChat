@@ -2,43 +2,49 @@ const mongoose = require('mongoose');
 const Counters = require('./Counters');
 
 const userSchema = new mongoose.Schema({
-	employeeId:{
+	employeeId: {
 		type: String,
 		required: true,
 		unique: true
 	},
-	name:{
+	name: {
 		type: String,
 		required: true,
 		min: 3,
 		max: 255
 	},
-	email:{
+	email: {
 		type: String,
 		required: true,
 		unique: true,
 		lowercase: true
 	},
-	password:{
+	password: {
 		type: String,
 		required: true,
 	},
-	department:{
+	resetPasswordToken: {
+		type: String
+	},
+	resetPasswordExpires: {
+		type: Date
+	},
+	department: {
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'Department',
 		required: true
 	},
-	position:{
+	position: {
 		type: String,
 		required: true,
 		enum: ['Director', 'Deputy Director', 'Secretary', 'Department Head', 'Deputy Department', 'Project Leader', 'Administrator', 'Employee']
 	},
-	role:{
+	role: {
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'Roles',
 		required: true
 	},
-	customPermissions:{
+	customPermissions: {
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'Permissions'
 	},
@@ -53,7 +59,7 @@ const userSchema = new mongoose.Schema({
 	},
 	avatar: {
 		type: String,
-        default: 'https://res.cloudinary.com/doruhcyf6/image/upload/v1732683090/blank-profile-picture-973460_1280_docdnf.png',
+		default: 'https://res.cloudinary.com/doruhcyf6/image/upload/v1732683090/blank-profile-picture-973460_1280_docdnf.png',
 	},
 	status: {
 		type: String,
@@ -71,11 +77,15 @@ const userSchema = new mongoose.Schema({
 	updatedAt: {
 		type: Date,
 		default: Date.now
+	},
+	active:{
+		type: Boolean,
+		default: true
 	}
 });
 
 userSchema.pre('save', function (next) {
-	if (this.isModified('position')  || !this.role){
+	if (this.isModified('position') || !this.role) {
 		const positionToRoleMap = {
 			'Administrator': 'admin',
 			'Director': 'user',

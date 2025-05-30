@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useUser } from "../../context/UserContext";
 import AddMemberModal from "../user/AddMemberModal";
 import EditGroupModal from "../user/EditModal";
+import { useAlert } from '../../context/AlertContext'
 
 const ConversationDetail = () => {
     const { id } = useParams();
@@ -12,8 +13,8 @@ const ConversationDetail = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const { user, socket } = useUser();
-    // const [confirmDelete, setConfirmDelete] = useState(false);
-    // const [actionMessage, setActionMessage] = useState(null);
+    const { showAlert } = useAlert();
+
     const [showAddMemberModal, setShowAddMemberModal] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [uploadProgress, setUploadProgress] = useState({});
@@ -27,6 +28,7 @@ const ConversationDetail = () => {
                         members: update.data.members
                     }));
                 }
+                showAlert('Members updated successfully', 'success');
             }
             if (update.type === 'update_group_info') {
                 if (conversation && conversation._id === update.data.conversationId) {
@@ -36,6 +38,7 @@ const ConversationDetail = () => {
                         avatarGroup: update.data.avatarGroup || prev.avatarGroup,
                     }));
                 }
+                showAlert('Group info updated successfully', 'success');
             }
         }
         socket.on('chat:update', handleChatUpdate);
@@ -95,6 +98,7 @@ const ConversationDetail = () => {
             })
         } catch (error) {
             console.error('Error adding members:', error);
+            showAlert('Error adding members', 'error');
         } finally {
             setLoading(false);
         }
@@ -112,6 +116,7 @@ const ConversationDetail = () => {
             })
         } catch (error) {
             console.error('Error removing members:', error);
+            showAlert('Error removing members', 'error');
         } finally {
             setLoading(false);
         }
@@ -122,6 +127,19 @@ const ConversationDetail = () => {
     const closeEditModal = () => {
         setIsEditModalOpen(false);
     }
+    const getFileType = (mimeType) => {
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType.startsWith('video/')) return 'video';
+        if (mimeType === 'application/pdf') return 'pdf';
+        if (mimeType.includes('document') || mimeType === 'application/msword' ||
+            mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'document';
+        if (mimeType.includes('spreadsheet') || mimeType === 'application/vnd.ms-excel' ||
+            mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'spreadsheet';
+        if (mimeType.includes('presentation') || mimeType === 'application/vnd.ms-powerpoint' ||
+            mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'presentation';
+        if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('7z')) return 'archive';
+        return 'document';
+    };
 
     const uploadFiles = async (files) => {
         setLoading(true);
@@ -226,7 +244,7 @@ const ConversationDetail = () => {
         const rolePriority = { 'admin': 1, 'deputy_admin': 2, 'member': 3 };
         return rolePriority[a.role] - rolePriority[b.role];
     });
-    
+
     return (
         <div>
             <div className="flex items-center justify-between mb-8">
@@ -285,36 +303,36 @@ const ConversationDetail = () => {
                 </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6 dark:bg-neutral-800">
-                <h2 className="text-xl font-semibold mb-4 dark:text-white">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700">
+                <h2 className="text-2xl font-bold text-indigo-800 dark:text-indigo-200 p-3">
                     Members ({conversation.memberCount || 0})
                 </h2>
 
                 {conversation.members && conversation.members.length > 0 ? (
                     <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-neutral-500">
-                            <thead className="bg-gray-50 dark:bg-neutral-700">
+                        <table className="min-w-full divide-y divide-indigo-100 dark:divide-slate-700">
+                            <thead className="bg-indigo-50 dark:bg-slate-700">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-neutral-300">
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                         Member
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-neutral-300">
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                         Position
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-neutral-300">
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                         Role
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-neutral-300">
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                         Joined
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-neutral-300">
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-indigo-600 dark:text-indigo-300 uppercase tracking-wider">
                                         Actions
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody className="bg-white divide-y divide-gray-200 dark:bg-neutral-800 dark:divide-neutral-700">
-                                {sortedMembers.map((member) => (
-                                    <tr key={member._id} className="hover:bg-gray-50 dark:hover:bg-neutral-700">
+                            <tbody className="bg-white divide-y divide-indigo-100 dark:divide-slate-600 dark:bg-slate-800">
+                            {sortedMembers.map((member) => (
+                                    <tr key={member._id} className="hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors duration-150">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
                                                 <div className="flex-shrink-0 h-10 w-10">
@@ -346,22 +364,6 @@ const ConversationDetail = () => {
                                             {new Date(member.joinedAt).toLocaleDateString()}
                                         </td>
                                         <td className="px-6 py-6 whitespace-nowrap text-center text-sm font-medium flex items-center">
-                                            {/* {confirmDelete && removingMemberId === member._id ? (
-                                                <div className="flex items-center">
-                                                    <button
-                                                        onClick={() => handleRemoveMember(member._id)}
-                                                        className="text-red-600 hover:text-red-900 mr-2"
-                                                    >
-                                                        Confirm
-                                                    </button>
-                                                    <button
-                                                        onClick={cancelRemove}
-                                                        className="text-gray-600 hover:text-gray-900"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </div>
-                                            ) : ( */}
                                             <button
                                                 onClick={() => handleRemoveMemebers(member._id)}
                                                 className="bg-red-600 hover:bg-red-900 text-white px-4 py-2 rounded-lg transition duration-200"

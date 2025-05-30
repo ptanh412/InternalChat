@@ -95,9 +95,74 @@ const getAllDepartment = async (req, res) => {
 	}
 };
 
+const getDepartmentMembers = async (req, res) => {
+	try {
+		
+		const { departmentId } = req.params;
+		console.log(departmentId);
+
+		const result = await departmentService.getDepartmentMembers(departmentId);
+
+		return res.status(200).json({
+			success: true,
+			message: 'Department members fetched successfully',
+			data: result
+		});
+	} catch (error) {
+		console.error('Fetch department members error: ', error);
+		return res.status(500).json({
+			success: false,
+			message: error.message || 'Failed to fetch department members'
+		});
+	}
+}
+
+const getDepartmentMemberDetails = async (req, res) => {
+	try {
+		const { memberId } = req.params;
+
+		const result = await departmentService.getDepartmentMemberDetails(memberId);
+
+		return res.status(200).json({
+			success: true,
+			message: 'Department member details fetched successfully',
+			data: result
+		});
+	} catch (error) {
+		console.error('Fetch department member details error: ', error);
+		return res.status(500).json({
+			success: false,
+			message: error.message || 'Failed to fetch department member details'
+		});
+	}
+};
+
+const getCurrentUserDepartment = async (req, res) => {
+	try {
+		const { userId } = req.params;
+
+		const result = await departmentService.getCurrentUserDepartment(userId);
+
+		return res.status(200).json({
+			success: true,
+			message: 'Current user department fetched successfully',
+			data: result
+		});
+	} catch (error) {
+		console.error('Fetch current user department error: ', error);
+		return res.status(500).json({
+			success: false,
+			message: error.message || 'Failed to fetch current user department'
+		});
+	}
+}
+
 module.exports = {
 	create,
 	update,
 	remove,
-	getAllDepartment
+	getAllDepartment,
+	getDepartmentMembers,
+	getDepartmentMemberDetails,
+	getCurrentUserDepartment
 };

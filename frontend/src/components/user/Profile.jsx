@@ -1,12 +1,12 @@
-import { FaCamera, FaCheck, FaEdit, FaSpinner, FaTimes, FaUber } from "react-icons/fa";
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useUser } from "../../context/UserContext";
 import axios from "axios";
-import { useChatContext } from "../../context/ChatContext";
+import { useAlert } from '../../context/AlertContext';
 
-const Profile = React.memo(() => {
+const Profile = () => {
+    const { showAlert } = useAlert();
     const [isOpened, setIsOpened] = useState(true);
-    const { user, setUser,socket } = useUser();
+    const { user, setUser, socket } = useUser();
     const [editMode, setEditMode] = useState({
         name: false,
         email: false,
@@ -20,36 +20,36 @@ const Profile = React.memo(() => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef(null);
-    const isUpdating = useRef(false);
 
     const updateUserData = (updatedFields) => {
         if (!updatedFields || !user) return user;
-        try{
-          
-        }catch(error){
+        try {
+            // Function implementation needed
+        } catch (error) {
             console.error("Error updating user data", error);
         }
     }
+
     useEffect(() => {
         setFormData({
             name: user.name,
             email: user.email,
             phoneNumber: user.phoneNumber
-        })
+        });
     }, [user]);
 
     useEffect(() => {
         if (socket) {
-
-            socket.on('user:updated', (data) => {
-                // updateUserData(data.updateFields);
+            socket.on('user:updated', () => {
                 setIsSubmitting(false);
-            })
+                showAlert("User data updated successfully", "success");
+            });
+
             return () => {
                 socket.off('user:updated');
             }
         }
-    }, [socket]);
+    }, [socket, showAlert]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -66,15 +66,16 @@ const Profile = React.memo(() => {
             setEditMode(prev => ({
                 ...prev,
                 [field]: false
-            }))
+            }));
             return;
         }
+
         setIsSubmitting(true);
         setEditMode(prev => ({
             ...prev,
             [field]: false
         }));
-        
+
         if (socket) {
             const updateDataUser = {
                 [field]: formData[field]
@@ -83,16 +84,18 @@ const Profile = React.memo(() => {
                 userId: user._id,
                 updateData: updateDataUser
             });
-            const userData = JSON.parse(localStorage.getItem("userData")) || user;
 
+            const userData = JSON.parse(localStorage.getItem("userData")) || user;
             const updatedUser = {
                 ...userData,
                 ...updateDataUser
             };
+
             localStorage.setItem("userData", JSON.stringify(updatedUser));
             setUser(updatedUser);
         }
     }
+
     const toggleEditMode = (field) => {
         if (!editMode[field]) {
             setFormData((prev) => ({
@@ -100,6 +103,7 @@ const Profile = React.memo(() => {
                 [field]: user[field] || ''
             }));
         }
+
         setEditMode((prev) => ({
             ...prev,
             [field]: !prev[field]
@@ -115,149 +119,249 @@ const Profile = React.memo(() => {
         if (!file) return;
 
         if (file.size > 5 * 1024 * 1024) {
-            alert("File size exceeds 5MB limit.");
+            showAlert("File size exceeds 5MB limit.", "error");
             return;
         }
+
         if (!file.type.startsWith("image/")) {
-            alert("Please upload an image file.");
+            showAlert("Please upload an image file.", "error");
             return;
         }
+
         setIsUploading(true);
 
         try {
             const formData = new FormData();
             formData.append('avatar', file);
 
-            const response = await axios.post("http://localhost:5000/api/file/upload-avatar", formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                    Authorization: `Bearer ${localStorage.getItem('token')}`
+            const response = await axios.post(
+                "http://localhost:5000/api/file/upload-avatar",
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                        Authorization: `Bearer ${localStorage.getItem('token')}`
+                    }
                 }
-            })
+            );
 
             if (response.data.success) {
+                showAlert("Avatar uploaded successfully", "success");
                 updateUserData({ avatar: response.data.user.avatar });
             } else {
-                alert("Error uploading avatar. Please try again.");
+                showAlert("Error uploading avatar. Please try again.", "error");
             }
         } catch (error) {
+            showAlert("Error uploading avatar. Please try again", "error");
             console.error("Error uploading avatar:", error);
-            alert("Error uploading avatar. Please try again.");
         } finally {
             setIsUploading(false);
         }
     }
 
     const renderEditableField = (label, field) => {
+        // Function to cancel edit mode and restore original value
+        const cancelEdit = () => {
+            setFormData(prev => ({
+                ...prev,
+                [field]: user[field] || ''
+            }));
+            setEditMode(prev => ({
+                ...prev,
+                [field]: false
+            }));
+        };
+
         return (
-            <div className="flex items-center justify-between mt-2">
-                <strong className="text-sm">{label}:</strong>
-                <div className="flex items-center">
+            <div className="flex flex-col lg:flex-row lg:items-center py-3 border-b border-gray-700">
+                <label className="font-medium text-gray-300 mb-1 lg:mb-0 lg:w-1/4 text-sm mr-5">{label}:</label>
+                <div className="flex items-center w-full lg:w-3/4 mt-1 lg:mt-0">
                     {editMode[field] ? (
-                        <>
+                        <div className=" sm:flex-row w-full items-start sm:items-center space-y-3">
                             <input
                                 type={field === 'email' ? 'email' : 'text'}
                                 name={field}
                                 value={formData[field]}
                                 onChange={handleChange}
-                                className="bg-neutral-600 rounded px-2 py-1 mr-2 text-white outline-none"
+                                className="bg-gray-700 rounded px-3 py-2 text-white outline-none border border-gray-600 focus:border-indigo-500 transition w-full sm:w-auto max-w-full truncate"
                                 disabled={isSubmitting}
                             />
-                            <button
-                                onClick={() => handleSubmit(field)}
-                                className="text-purple-400 mr-2"
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? <span className="animate-spin">...</span> : <FaCheck />}
-                            </button>
-                            <button
-                                onClick={() => toggleEditMode(field)}
-                                className="text-purple-400"
-                                disabled={isSubmitting}
-                            >
-                                <FaTimes />
-                            </button>
-                        </>
+                            <div className="flex items-center sm:mt-0 sm:ml-2">
+                                <div className="flex mt-2 sm:mt-0 sm:ml-2">
+                                    <button
+                                        onClick={() => handleSubmit(field)}
+                                        className="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1 flex items-center mr-2 transition duration-200"
+                                        disabled={isSubmitting}
+                                        aria-label="Save"
+                                    >
+                                        {isSubmitting ? (
+                                            <svg className="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        ) : (
+                                            <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                        <span className="text-sm">Save</span>
+                                    </button>
+                                    <button
+                                        onClick={cancelEdit}
+                                        className="bg-red-600 hover:bg-red-700 text-white rounded px-3 py-1 flex items-center transition duration-200"
+                                        disabled={isSubmitting}
+                                        aria-label="Cancel"
+                                    >
+                                        <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                        </svg>
+                                        <span className="text-sm">Cancel</span>
+                                    </button>
+                                </div>
+
+                            </div>
+                        </div>
                     ) : (
-                        <>
-                            <span className={field === 'email' ? 'text-blue-400' : ''}>
+                        <div className="flex items-end w-full justify-between">
+                            <span className={`${field === 'email' ? 'text-indigo-400' : 'text-white'} truncate max-w-md`} title={user[field]}>
                                 {user[field] || 'N/A'}
                             </span>
                             <button
                                 onClick={() => toggleEditMode(field)}
-                                className="text-purple-400 ml-2"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded ml-3 px-3 py-1 flex items-center transition duration-200"
+                                aria-label="Edit"
                             >
-                                <FaEdit />
+                                <svg className="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                </svg>
+                                <span className="text-sm">Edit</span>
                             </button>
-                        </>
+                        </div>
                     )}
                 </div>
             </div>
-        )
+        );
     }
 
     return (
-        <div className="w-full h-full dark:bg-neutral-900 dark:text-white p-4">
-            <h2 className="text-xl font-bold">Profile</h2>
-            <div className="flex flex-col items-center mt-4">
-                <div className="relative">
-                    <img
-                        src={user.avatar}
-                        alt="Profile"
-                        className="w-16 h-16 rounded-full object-cover"
-                    />
-                    <div
-                        className="absolute bottom-0 right-0 bg-neutral-500 rounded-full p-1 cursor-pointer text-xs"
-                        onClick={handleAvatarClick}
-                    >
-                        {isUploading ? (
-                            <FaSpinner className="animate-spin text-white" />
-                        ) : (
-                            <FaCamera className="text-white" />
-                        )}
-                    </div>
-                    <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarChange}
-                        ref={fileInputRef}
-                        className="hidden"
-                    />
+        <div className="w-full h-full bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-slate-900 dark:text-white shadow-2xl border-l border-slate-200/50 dark:border-slate-700/50 backdrop-blur-sm p-4 sm:p-6">
+            <div className="max-w-3xl mx-auto">
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl blur-xl"></div>
+                    <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
+                        <div className="relative">
+                            <span className="bg-gradient-to-r from-blue-500 to-purple-600 w-3 h-8 rounded-full inline-block shadow-lg"></span>
+                            <span className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-500 w-3 h-8 rounded-full inline-block animate-pulse opacity-75"></span>
+                        </div>
+                        User Profile
+                    </h1>
                 </div>
-                <h3 className="text-lg font-semibold mt-2">{user.name}</h3>
-                <p className="text-green-400">{user.status === 'online' ? 'Active' : 'Offline'}</p>
-            </div>
+                {/* Profile Header */}
+                <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-6">
+                    <div className="h-32 bg-gradient-to-r from-indigo-500 to-purple-600"></div>
+                    <div className="px-6 pb-6">
+                        <div className="flex flex-col items-center sm:flex-row sm:items-end -mt-16 mb-4">
+                            <div className="relative group">
+                                <div className="w-24 h-24 rounded-full border-4 border-gray-800 overflow-hidden bg-gray-700">
+                                    <img
+                                        src={user.avatar || "/api/placeholder/150/150"}
+                                        alt="Profile"
+                                        className="w-full h-full object-cover"
+                                    />
+                                </div>
+                                <div
+                                    onClick={handleAvatarClick}
+                                    className="absolute inset-0 bg-black bg-opacity-40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity duration-300"
+                                >
+                                    {isUploading ? (
+                                        <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    ) : (
+                                        <svg className="h-8 w-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        </svg>
+                                    )}
+                                </div>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleAvatarChange}
+                                    ref={fileInputRef}
+                                    className="hidden"
+                                />
+                            </div>
+                            <div className="mt-4 sm:mt-0 sm:ml-4 text-center sm:text-left">
+                                <h3 className="text-xl font-bold">{user.name}</h3>
+                                <div className="flex items-center justify-center sm:justify-start mt-1">
+                                    <div className={`w-2 h-2 rounded-full ${user.status === 'online' ? 'bg-green-500' : 'bg-gray-500'} mr-2`}></div>
+                                    <span className="text-sm text-gray-300">{user.status === 'online' ? 'Active Now' : 'Offline'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-            <div className="p-4 mt-4 dark:bg-neutral-800 rounded-lg">
-                <h3 className="text-lg font-semibold">About</h3>
-                <p className="text-sm text-gray-400 mt-2">
-                    "If several languages coalesce, the grammar of the resulting language is simpler."
-                </p>
-                <div className="mt-4 dark:bg-neutral-800 rounded-lg">
+                {/* About Section */}
+                <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-6">
+                    <div className="p-6">
+                        <h3 className="text-lg font-semibold text-indigo-400 flex items-center">
+                            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            </svg>
+                            About
+                        </h3>
+                        <p className="text-gray-300 mt-3 italic">
+                            "If several languages coalesce, the grammar of the resulting language is simpler."
+                        </p>
+                    </div>
+                </div>
+
+                {/* Details Section */}
+                <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden">
                     <button
                         onClick={() => setIsOpened(!isOpened)}
-                        className="w-full text-base font-semibold dark:bg-neutral-800 p-2 rounded-lg flex justify-between"
+                        className="w-full flex items-center justify-between p-6 focus:outline-none transition"
                     >
-                        <div className="flex items-center">
-                            <FaUber className="mr-2" />
-                            <span>Details</span>
+                        <div className="flex items-center text-indigo-400 font-semibold">
+                            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 4h3a3 3 0 006 0h3a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45 4a2.5 2.5 0 10-4.9 0h4.9zM12 9a1 1 0 100 2h3a1 1 0 100-2h-3zm-1 4a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                            </svg>
+                            Personal Information
                         </div>
-                        <span>{isOpened ? "▲" : "▼"}</span>
+                        <svg
+                            className={`w-5 h-5 transition-transform duration-300 ${isOpened ? 'transform rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        </svg>
                     </button>
 
                     {isOpened && (
-                        <div className="mt-4 space-y-10 text-sm dark:bg-neutral-700 p-5 rounded-lg">
+                        <div className="p-6 bg-gray-700 rounded-b-xl border-t border-gray-600">
                             {renderEditableField('Name', 'name')}
                             {renderEditableField('Email', 'email')}
                             {renderEditableField('Phone Number', 'phoneNumber')}
-                            <p><strong>Position:</strong> {user.position}</p>
-                            <p><strong>Departmant:</strong> {user.department.name}</p>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3 border-b border-gray-700">
+                                <span className="font-medium text-gray-300">Position:</span>
+                                <span className="mt-1 sm:mt-0 text-white">{user.position || 'N/A'}</span>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3">
+                                <span className="font-medium text-gray-300">Department:</span>
+                                <span className="mt-1 sm:mt-0 text-white">{user.department?.name || 'N/A'}</span>
+                            </div>
                         </div>
                     )}
                 </div>
             </div>
         </div>
     );
-})
+};
 
-export default Profile; 
+export default Profile;

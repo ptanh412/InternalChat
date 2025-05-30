@@ -211,8 +211,8 @@ const transferAdminRole  = async (req, res) => {
 
 const getConversationByUserId = async (req, res) => {
     try {
-        const conversation = await conversationService.getConvById(req.params.userId);
-        console.log('Debug conversation:', conversation);
+        const conversation = await conversationService.getUserConversations(req.params.userId);
+        // console.log('Debug conversation:', conversation);
         return res.status(200).json({
             success: true,
             data: conversation
@@ -256,6 +256,44 @@ const getAllConvDepartmentById = async (req, res) => {
         });
     }
 }
+
+// Updated archive controller with proper response handling
+const archiveConversation = async (req, res) => {
+    try {
+        const { conversationId } = req.body;
+        const userId = req.user._id;
+        
+        const result = await conversationService.archivedConversations(conversationId, userId);
+        
+        // Ensure we return the complete conversation data
+        if (result.success) {
+            // Get the updated conversations after archiving
+            const updatedConversations = await conversationService.getConvById(userId);
+            
+            // Find the specific conversation we just archived
+            const updatedConversation = updatedConversations.find(
+                conv => conv.conversationInfo._id.toString() === conversationId.toString()
+            );
+            
+            return res.status(200).json({
+                success: true,
+                message: result.message,
+                data: updatedConversation || result // Return the updated conversation if found, otherwise just return the result
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to archive conversation'
+            });
+        }
+    } catch (error) {
+        console.error('Error archiving conversation:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 module.exports = {
     createConvDepartment,
     updateConvDepartment,
@@ -266,5 +304,6 @@ module.exports = {
     transferAdminRole,
     getConversationByUserId,
     getAllConvDepartment,
-    getAllConvDepartmentById
+    getAllConvDepartmentById,
+    archiveConversation
 };

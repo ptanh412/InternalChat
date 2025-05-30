@@ -5,7 +5,6 @@ const Users = require('../models/Users.js');
 const UserSetting = require('../models/UserSetting.js');
 const { hashPassword, comparePassword } = require('../utils/encryption');
 const { generateToken } = require('../utils/jwt');
-const helpers = require('../helper/user');
 const Roles = require('../models/Roles.js');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
@@ -31,29 +30,6 @@ const createUser = async (userData) => {
 			const employeeIdExists = await Users.findOne({ employeeId: userData.employeeId });
 			if (employeeIdExists) throw new Error('Employee ID already exists');
 		}
-
-		// if (userData.department) {
-		// 	if (typeof userData.department === 'string' && !mongoose.Types.ObjectId.isValid(userData.department)) {
-		// 		let department = await Department.findOne({
-		// 			name: { $regex: new RegExp(userData.department, 'i') }
-		// 		})
-
-		// 		if (!department) {
-		// 			department = new Department({
-		// 				name: userData.department,
-		// 				description: `${userData.department} Department`
-		// 			});
-		// 			await department.save();
-		// 		}
-		// 		userData.department = department._id;
-		// 	} else {
-		// 		const department = await Department.findById(userData.department);
-		// 		if (!department) {
-		// 			throw new Error('Invalid department ID');
-		// 		}
-		// 	}
-		// }
-
 		const positionToRoleMap = {
 			'Administrator': 'admin',
 			'Director': 'user',
@@ -87,6 +63,15 @@ const createUser = async (userData) => {
 					}
 				}
 				department.header = user._id;
+				await department.save();
+			} else if (userData.position === 'Deputy Department') {
+				if (department.deputyHeader) {
+					if (!department.members.includes(department.deputyHeader)) {
+						department.members.push(department.deputyHeader);
+					}
+				}
+				department.deputyHeader = user._id;
+				await department.save();
 			} else {
 				await Department.findByIdAndUpdate(userData.department, {
 					$addToSet: { members: user._id }
@@ -95,106 +80,94 @@ const createUser = async (userData) => {
 			}
 			if (department.conversationId) {
 				const conversation = await Conversations.findById(department.conversationId);
-
-				if (roleName === 'department_head') {
-					const currentAdmin = await ConversationMember.findOne({
-						conversationId: conversation._id,
-						role: 'admin'
-					});
-
-					if (currentAdmin) {
-						await ConversationMember.updateOne(
-							{ _id: currentAdmin._id },
-							{
-								role: 'member',
-								permissions: {
-									canChat: false,
-									canAddMembers: false,
-									canRemoveMembers: false,
-									canEditConversation: false,
-									canAssignDeputies: false
-								}
-							}
-						)
-					}
-
-					await ConversationMember.create({
-						conversationId: conversation._id,
-						memberId: user._id,
-						role: 'admin',
-						permissions: {
-							canChat: true,
-							canAddMembers: true,
-							canRemoveMembers: true,
-							canEditConversation: true,
-							canAssignDeputies: true
-						}
-					})
-
-					await socketService.getSocket().createPersonalizedSystemmessage({
-						conversationId: conversation._id,
-						actorId: user._id,
-						action: 'update_role',
-						data: {
-							newRole: 'admin'
-						}
-					})
-				} else if (roleName === 'deputy_head') {
-					const currentDeputyAdmin = await ConversationMember.findOne({
-						conversationId: conversation._id,
-						role: 'deputy_admin'
-					});
-
-					if (currentDeputyAdmin) {
-						await ConversationMember.updateOne(
-							{ _id: currentDeputyAdmin._id },
-							{
-								role: 'member',
-								permissions: {
-									canChat: false,
-									canAddMembers: false,
-									canRemoveMembers: false,
-									canEditConversation: false,
-									canAssignDeputies: false
-								}
-							}
-						)
-					};
-
-					await ConversationMember.create({
-						conversationId: conversation._id,
-						memberId: user._id,
-						role: 'deputy_admin',
-						permissions: {
-							canChat: true,
-							canAddMembers: true,
-							canRemoveMembers: true,
-							canEditConversation: true,
-							canAssignDeputies: false
-						}
-					});
-
-					await socketService.getSocket().createPersonalizedSystemmessage({
-						conversationId: conversation._id,
-						actorId: user._id,
-						action: 'update_role',
-						data: {
-							newRole: 'deputy_admin'
-						}
-					})
+				if (!conversation) {
+					console.log('Conversation not found for department:', department._id);
 				} else {
-					await ConversationMember.create({
-						conversationId: conversation._id,
-						memberId: user._id,
-						role: 'member',
-						permissions: {
-							canChat: false,
-							canAddMembers: false,
-							canRemoveMembers: false,
-							canEditConversation: false,
-							canAssignDeputies: false
+
+					if (roleName === 'department_head') {
+						const currentAdmin = await ConversationMember.findOne({
+							conversationId: conversation._id,
+							role: 'admin'
+						});
+
+						if (currentAdmin) {
+							await ConversationMember.updateOne(
+								{ _id: currentAdmin._id },
+								{
+									role: 'member',
+									permissions: {
+										canChat: false,
+										canAddMembers: false,
+										canRemoveMembers: false,
+										canEditConversation: false,
+										canAssignDeputies: false
+									}
+								}
+							)
 						}
-					})
+
+						await ConversationMember.create({
+							conversationId: conversation._id,
+							memberId: user._id,
+							role: 'admin',
+							permissions: {
+								canChat: true,
+								canAddMembers: true,
+								canRemoveMembers: true,
+								canEditConversation: true,
+								canAssignDeputies: true
+							}
+						})
+
+
+					} else if (roleName === 'deputy_head') {
+						const currentDeputyAdmin = await ConversationMember.findOne({
+							conversationId: conversation._id,
+							role: 'deputy_admin'
+						});
+
+						if (currentDeputyAdmin) {
+							await ConversationMember.updateOne(
+								{ _id: currentDeputyAdmin._id },
+								{
+									role: 'member',
+									permissions: {
+										canChat: false,
+										canAddMembers: false,
+										canRemoveMembers: false,
+										canEditConversation: false,
+										canAssignDeputies: false
+									}
+								}
+							)
+						};
+
+						await ConversationMember.create({
+							conversationId: conversation._id,
+							memberId: user._id,
+							role: 'deputy_admin',
+							permissions: {
+								canChat: true,
+								canAddMembers: true,
+								canRemoveMembers: true,
+								canEditConversation: true,
+								canAssignDeputies: false
+							}
+						});
+					} else {
+						await ConversationMember.create({
+							conversationId: conversation._id,
+							memberId: user._id,
+							role: 'member',
+							permissions: {
+								canChat: false,
+								canAddMembers: false,
+								canRemoveMembers: false,
+								canEditConversation: false,
+								canAssignDeputies: false
+							}
+						})
+					}
 				}
 			}
 		}
@@ -204,8 +177,6 @@ const createUser = async (userData) => {
 		});
 		await userSettings.save();
 		const result = user.toObject();
-
-		await socketService.getSocket().notifyUserCreate(result);
 		delete result.password;
 		return result;
 	} catch (error) {
@@ -345,8 +316,17 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 			await addUserToConvDept(userId, newDepartmentId, updateData.position);
 		}
 
-		await helpers.createUpdateNotification(user, originalValues, updateData, adminUser);
-		
+		await socketService.getSocket().createUpdateNotification(user, originalValues, updateData, adminUser);
+
+		await socketService.getSocket().emitRoleUpdate({
+			userId: user._id,
+			oldDepartmentId: oldDepartmentId,
+			newDepartmentId: newDepartmentId,
+			oldPosition: originalValues.position,
+			newPosition: updateData.position,
+			adminId: adminUser
+		});
+
 		const result = user.toObject();
 		delete result.password;
 		await socketService.getSocket().notifyUserUpdate(result);
@@ -359,147 +339,233 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 const handleDepartmentPositionChanges = async (user, updateData, oldDepartmentId, newDepartmentId, adminPermissions, deputyAdminPermissions, memberPermissions) => {
 	try {
 
-		if (!updateData.position || updateData.position === user.position) return;
-
-		const targetDepartmentId = oldDepartmentId || newDepartmentId;
-
-		if (!targetDepartmentId) return;
-
-		const department = await Department.findById({ _id: targetDepartmentId });
-		if (!department) return;
-
-		if (updateData.position === 'Department Head') {
-			const isCurrentDeputy = department.deputyHeader && department.deputyHeader.equals(user._id);
-			if (department.header) {
-				const currentHead = await Users.findById(department.header);
-				if (currentHead && !currentHead._id.equals(user._id)) {
-					const userRole = await Roles.findOne({ name: 'user' });
-					const currentHeadUpdate = {
-						position: 'Employee',
-						role: userRole._id,
-						updatedAt: new Date()
-					}
-					await Users.findByIdAndUpdate(
-						currentHead._id,
-						currentHeadUpdate,
-						{ new: true }
-					)
-
-					if (department.conversationId) {
-						await demoteUserInConversation(
-							department.conversationId,
-							currentHead._id,
-							'admin',
-							memberPermissions
-						);
-					}
-
-					await socketService.getSocket().notifyUserUpdate(currentHeadUpdate);
-				}
+		if (oldDepartmentId && (!newDepartmentId || !oldDepartmentId.equals(newDepartmentId))) {
+			console.log('Handling old department changes');
+			await handleOldDepartmentPositionChanges(user, oldDepartmentId, memberPermissions);
+		}
+		if (newDepartmentId) {
+			try {
+				await handleNewDepartmentPositionChanges(user, newDepartmentId, updateData.position, adminPermissions, deputyAdminPermissions, memberPermissions);
+				console.log('Successfully handled new department position changes');
+			} catch (error) {
+				console.error('Error in handleNewDepartmentPositionChanges:', error);
+				throw error;
 			}
-			const updateObj = {
-				header: user._id,
-				updatedAt: new Date()
-			};
-
-			if (isCurrentDeputy) {
-				updateObj.deputyHeader = null;
-			}
-			await Department.findByIdAndUpdate(
-				department._id,
-				updateObj,
-				{ new: true }
-			)
-
-			if (department.conversationId) {
-				await updateUserConversation(
-					department.conversationId,
-					user._id,
-					'admin',
-					adminPermissions
-				);
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId: department.conversationId,
-					actorId: user._id,
-					action: 'update_role',
-					data: {
-						newRole: 'admin'
-					}
-				})
-			}
-
-		} else if (updateData.position === 'Deputy Department') {
-			department.deputyHeader = user._id;
-
-			if (department.conversationId) {
-				await updateUserConversation(
-					department.conversationId,
-					user._id,
-					'deputy_admin',
-					deputyAdminPermissions
-				);
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId: department.conversationId,
-					actorId: user._id,
-					action: 'update_role',
-					data: {
-						newRole: 'deputy_admin'
-					}
-				})
-			}
-		} else if (user.position === 'Department Head' && department.header && department.header.equals(user._id)) {
-			await Department.findByIdAndUpdate(
-				department._id,
-				{
-					header: null,
-					updatedAt: new Date()
-				},
-				{ new: true }
-			)
-
-			if (department.conversationId) {
-				await demoteUserInConversation(
-					department.conversationId,
-					user._id,
-					'admin',
-					memberPermissions
-				);
-			}
-		} else if (user.position === 'Deputy Department' && department.deputyHeader && department.deputyHeader.equals(user._id)) {
-			await Department.findByIdAndUpdate(
-				department._id,
-				{
-					deputyHeader: null,
-					updatedAt: new Date()
-				},
-				{ new: true }
-			)
-
-			if (department.conversationId) {
-				await demoteUserInConversation(
-					department.conversationId,
-					user._id,
-					'deputy_admin',
-					memberPermissions
-				);
-			}
+		} else {
+			console.log('Skipping new department position changes - no new department detected');
 		}
 
-		if (!department.members.includes(user._id)) {
-			await Department.findByIdAndUpdate(
-				department._id,
-				{
-					$push: { members: user._id },
-					updatedAt: new Date()
-				},
-				{ new: true }
-			)
-		}
-
-		department.updatedAt = new Date();
-		await department.save();
 	} catch (error) {
 		console.log('Error in handleDepartmentPositionChanges', error);
+		throw error;
+	}
+};
+
+const handleOldDepartmentPositionChanges = async (user, oldDepartmentId, memberPermissions) => {
+	const oldDepartment = await Department.findById(oldDepartmentId);
+	if (!oldDepartment) return;
+
+	const isHeadOfDepartment = oldDepartment.header && oldDepartment.header.equals(user._id);
+	const isDeputyHeadOfDepartment = oldDepartment.deputyHeader && oldDepartment.deputyHeader.equals(user._id);
+
+	if (isHeadOfDepartment) {
+		await updateDepartmentHead(oldDepartment, user._id);
+	}
+
+	if (isDeputyHeadOfDepartment) {
+		await Department.findByIdAndUpdate(
+			oldDepartment._id,
+			{
+				deputyHeader: null,
+				updatedAt: new Date()
+			}
+		)
+	}
+	if (oldDepartment.conversationId) {
+		await demoteUserInConversation(
+			oldDepartment.conversationId,
+			user._id,
+			'member',
+			memberPermissions
+		);
+	}
+}
+
+const handleNewDepartmentPositionChanges = async (user, newDepartmentId, newPosition, adminPermissions, deputyAdminPermissions, memberPermissions) => {
+	const newDepartment = await Department.findById(newDepartmentId);
+	console.log('New department:', newDepartmentId, 'with position:', newPosition);
+	if (!newDepartment) return;
+
+	if (newPosition === 'Department Head') {
+
+		if (newDepartment.header && !newDepartment.header.equals(user._id)) {
+			const currentHead = await Users.findById(newDepartment.header);
+			console.log('Current department head:', currentHead ? currentHead.name : 'None');
+
+
+			if (currentHead && !currentHead._id.equals(user._id)) {
+				console.log('Demoting current department head to Employee');
+
+				const userRole = await Roles.findOne({ name: 'user' });
+				const currentHeadUpdate = {
+					position: 'Employee',
+					role: userRole._id,
+					updatedAt: new Date()
+				};
+
+				const updatedHead = await Users.findByIdAndUpdate(
+					currentHead._id,
+					currentHeadUpdate,
+					{ new: true }
+				);
+				console.log('Updated head result:', updatedHead ? updatedHead.name : 'Failed to update');
+
+				if (newDepartment.conversationId) {
+					await demoteUserInConversation(
+						newDepartment.conversationId,
+						currentHead._id,
+						'member',
+						memberPermissions
+					);
+					console.log('Demoted user in conversation');
+				}
+				if (updatedHead) {
+					const headResult = updatedHead.toObject();
+					delete headResult.password;
+					await socketService.getSocket().notifyUserUpdate(headResult);
+					console.log('Sent notification for head update');
+
+				}
+			}
+		}
+		const isCurrentDeputy = newDepartment.deputyHeader;
+		console.log('Is current user a deputy?', isCurrentDeputy);
+
+		const updateObj = {
+			header: user._id,
+			updatedAt: new Date()
+		};
+		// if (isCurrentDeputy) {
+		// 	updateObj.deputyHeader = null;
+		// }
+		await Department.findByIdAndUpdate(
+			newDepartment._id,
+			updateObj,
+			{ new: true }
+		);
+
+		if (newDepartment.conversationId) {
+			await handleSystemAdminInConv(newDepartment.conversationId, user._id, newDepartment._id, memberPermissions);
+			await updateUserConversation(
+				newDepartment.conversationId,
+				user._id,
+				'admin',
+				adminPermissions
+			);
+		}
+	} else if (newPosition === 'Deputy Department') {
+		await Department.findByIdAndUpdate(
+			newDepartment._id,
+			{
+				deputyHeader: user._id,
+				updatedAt: new Date()
+			},
+			{ new: true }
+		);
+
+		if (newDepartment.conversationId) {
+			await updateUserConversation(
+				newDepartment.conversationId,
+				user._id,
+				'deputy_admin',
+				deputyAdminPermissions
+			);
+		}
+		///
+	} else {
+		if (newDepartment.conversationId) {
+			await updateUserConversation(
+				newDepartment.conversationId,
+				user._id,
+				'member',
+				memberPermissions
+			);
+		}
+	}
+
+	if (!newDepartment.members.includes(user._id)) {
+		await Department.findByIdAndUpdate(
+			newDepartment._id,
+			{
+				$push: { members: user._id },
+				updatedAt: new Date()
+			},
+			{ new: true }
+		)
+	}
+}
+
+const handleSystemAdminInConv = async (conversationId, newHeadId, departmentId, memberPermissions) => {
+	try {
+		const adminRole = await Roles.findOne({ name: 'admin' });
+		if (!adminRole) return;
+
+		const adminUser = await Users.findOne({ role: adminRole._id });
+		if (!adminUser) return;
+
+		const department = await Department.findById(departmentId);
+		if (!department) return;
+
+		const adminMember = await ConversationMember.findOne({
+			conversationId,
+			memberId: adminUser._id
+		});
+
+		if (adminMember){
+			const adminIsDeptMember = department && department.members.some(
+				member => member.equals(adminUser._id)
+			)
+
+			if (adminIsDeptMember) {
+				await ConversationMember.updateOne(
+					{ _id: adminMember._id },
+					{
+						role: 'member',
+						permissions: memberPermissions
+					}
+				);
+				console.log('System admin demoted to member in conversation');
+			} else {
+				await ConversationMember.deleteOne({ _id: adminMember._id });
+				console.log('System admin removed from conversation');
+			}
+		}
+
+		if (department.deputyHeader && !department.deputyHeader.equals(newHeadId)) {
+			const deputyMember = await ConversationMember.findOne({
+				conversationId,
+				memberId: department.deputyHeader
+			});
+
+			if (deputyMember && deputyMember.role === 'admin') {
+				await ConversationMember.updateOne(
+					{ _id: deputyMember._id },
+					{
+						role: 'deputy_admin',
+						permissions: {
+							canChat: true,
+							canAddMembers: true,
+							canRemoveMembers: true,
+							canEditConversation: true,
+							canAssignDeputies: false
+						}
+					}
+				);
+				console.log('Deputy admin demoted to deputy admin in conversation');
+			}
+		}
+	} catch (error) {
+		console.log('Error in handleSystemAdminInConv', error);
 		throw error;
 	}
 }
@@ -530,7 +596,7 @@ const updateUserConversation = async (conversationId, userId, role, permissions)
 	}
 }
 
-const demoteUserInConversation = async (conversationId, userId, currentRole, newPermissions) => {
+const demoteUserInConversation = async (conversationId, userId, role, newPermissions) => {
 	if (!conversationId) return;
 
 	const memberInConversation = await ConversationMember.findOne({
@@ -542,19 +608,10 @@ const demoteUserInConversation = async (conversationId, userId, currentRole, new
 		await ConversationMember.updateOne(
 			{ _id: memberInConversation._id },
 			{
-				role: 'member',
+				role,
 				permissions: newPermissions
 			}
 		);
-
-		await socketService.getSocket().createPersonalizedSystemmessage({
-			conversationId,
-			actorId: userId,
-			action: 'update_role',
-			data: {
-				newRole: 'member'
-			}
-		})
 	}
 };
 
@@ -601,7 +658,7 @@ const removeUserFromDepartment = async (userId, oldDepartmentId) => {
 
 		if (isDeputyHeadOfDepartment) {
 			await Department.findByIdAndUpdate(
-				oldDepartment,
+				oldDepartment._id,
 				{
 					deputyHeader: null,
 					updatedAt: new Date()
@@ -624,23 +681,7 @@ const removeUserFromConvDept = async (conversationId, userId) => {
 		if (member) {
 			const user = await Users.findById(userId);
 			const userName = user ? user.name : 'Unknown User';
-
-			try {
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId,
-					actorId: userId,
-					action: 'remove_member',
-					data: {
-						removeMemberIds: [userId],
-						removedMembers: [{ _id: userId, name: userName }]
-					}
-				})
-
-			} catch (messageError) {
-				console.log('Error in removeUserFromConvDept', messageError);
-			}
 			await ConversationMember.deleteOne({ _id: member._id });
-
 		}
 	} catch (error) {
 		console.log('Error in removeUserFromConvDept', error);
@@ -649,84 +690,113 @@ const removeUserFromConvDept = async (conversationId, userId) => {
 }
 
 const updateDepartmentHead = async (department, oldHeadId) => {
-	try {
-		await Department.findByIdAndUpdate(
-			department._id,
-			{
-				header: null,
-				updatedAt: new Date()
-			}
-		);
-		if (!department.conversationId) return;
+    try {
+        const currentDepartment = await Department.findById(department._id);
+        console.log('Current department:', currentDepartment);
+        console.log('Deputy head:', currentDepartment.deputyHeader);
+        console.log('Conversation ID:', currentDepartment.conversationId);
+        if (!currentDepartment) return;
 
-		if (department.deputyHeader) {
-			await updateUserConversation(
-				department.conversationId,
-				department.deputyHeader,
-				'admin',
-				{
-					canChat: true,
-					canAddMembers: true,
-					canRemoveMembers: true,
-					canEditConversation: true,
-					canAssignDeputies: true
-				}
-			);
+        if (currentDepartment.deputyHeader && currentDepartment.conversationId) {
+            console.log('Promoting deputy head to admin in conversation', currentDepartment.deputyHeader);
+            await updateUserConversation(
+                currentDepartment.conversationId,
+                currentDepartment.deputyHeader,
+                'admin',
+                {
+                    canChat: true,
+                    canAddMembers: true,
+                    canRemoveMembers: true,
+                    canEditConversation: true,
+                    canAssignDeputies: true
+                }
+            );
+            console.log('Deputy head promoted to admin in conversation');
 
-			await socketService.getSocket().createPersonalizedSystemmessage({
-				conversationId: department.conversationId,
-				actorId: department.deputyHeader,
-				action: 'update_role',
-				data: {
-					newRole: 'admin'
-				}
-			})
-			return;
-		}
+            // Demote trưởng phòng cũ nếu họ vẫn còn trong conversation
+            if (oldHeadId && currentDepartment.members.some(member => member.equals(oldHeadId))) {
+                await demoteUserInConversation(
+                    currentDepartment.conversationId,
+                    oldHeadId,
+                    'member',
+                    {
+                        canChat: false,
+                        canAddMembers: false,
+                        canRemoveMembers: false,
+                        canEditConversation: false,
+                        canAssignDeputies: false
+                    }
+                );
+                console.log('Old head demoted to member in conversation');
+            }
+        } else if (currentDepartment.conversationId) {
+            const adminRole = await Roles.findOne({ name: 'admin' });
+            const adminUser = adminRole ? await Users.findOne({ role: adminRole._id }) : null;
 
-		const adminRole = await Roles.findOne({ name: 'admin' });
+            if (adminUser) {
+                const adminMember = await ConversationMember.findOne({ conversationId: currentDepartment.conversationId, memberId: adminUser._id });
+                if (!adminMember) {
+                    await ConversationMember.create({
+                        conversationId: currentDepartment.conversationId,
+                        memberId: adminUser._id,
+                        role: 'admin',
+                        permissions: {
+                            canChat: true,
+                            canAddMembers: true,
+                            canRemoveMembers: true,
+                            canEditConversation: true,
+                            canAssignDeputies: true
+                        }
+                    });
+                    console.log('System admin added as admin to conversation (no deputy)');
+                } else if (adminMember.role !== 'admin') {
+                    await ConversationMember.updateOne(
+                        { _id: adminMember._id },
+                        {
+                            role: 'admin',
+                            permissions: {
+                                canChat: true,
+                                canAddMembers: true,
+                                canRemoveMembers: true,
+                                canEditConversation: true,
+                                canAssignDeputies: true
+                            }
+                        }
+                    );
+                    console.log('System admin updated to admin role in conversation (no deputy)');
+                }
+                // Demote trưởng phòng cũ nếu họ vẫn còn trong conversation
+                if (oldHeadId && currentDepartment.members.some(member => member.equals(oldHeadId))) {
+                    await demoteUserInConversation(
+                        currentDepartment.conversationId,
+                        oldHeadId,
+                        'member',
+                        {
+                            canChat: false,
+                            canAddMembers: false,
+                            canRemoveMembers: false,
+                            canEditConversation: false,
+                            canAssignDeputies: false
+                        }
+                    );
+                    console.log('Old head demoted to member in conversation (no deputy)');
+                }
+            }
+        }
 
-		if (adminRole) {
-			const adminUser = await Users.findOne({ role: adminRole._id });
+        await Department.findByIdAndUpdate(
+            currentDepartment._id,
+            {
+                header: null,
+                updatedAt: new Date()
+            },
+            { new: true }
+        );
 
-			if (adminUser && !adminUser._id.equals(oldHeadId)) {
-				await updateUserConversation(
-					department.conversationId,
-					adminUser._id,
-					'admin',
-					{
-						canChat: true,
-						canAddMembers: true,
-						canRemoveMembers: true,
-						canEditConversation: true,
-						canAssignDeputies: true
-					}
-				);
-
-				await socketService.getSocket().createPersonalizedSystemmessage({
-					conversationId: department.conversationId,
-					actorId: adminUser._id,
-					action: 'update_role',
-					data: {
-						newRole: 'admin'
-					}
-				})
-
-				if (!department.members.includes(adminUser._id)) {
-					await Department.findByIdAndUpdate(
-						department._id,
-						{
-							$push: { members: adminUser._id },
-							updatedAt: new Date()
-						}
-					)
-				}
-			}
-		}
-	} catch (error) {
-		console.log('Error in updateDepartmentHead', error);
-		throw error;
-	}
+    } catch (error) {
+        console.log('Error in updateDepartmentHead', error);
+        throw error;
+    }
 }
 
 const addUserToConvDept = async (userId, departmentId, position) => {
@@ -770,8 +840,16 @@ const addUserToConvDept = async (userId, departmentId, position) => {
 			canRemoveMembers: true,
 			canEditConversation: true,
 			canAssignDeputies: true
-		}
-	} else if (position === 'Deputy Head') {
+		};
+
+		await handleSystemAdminInConv(conversationId, userId, departmentId, {
+			canChat: false,
+			canAddMembers: false,
+			canRemoveMembers: false,
+			canEditConversation: false,
+			canAssignDeputies: false
+		});
+	} else if (position === 'Deputy Department') {
 		role = 'deputy_admin';
 		permissions = {
 			canChat: true,
@@ -809,6 +887,25 @@ const deleteUser = async (userId) => {
 		await Users.findByIdAndDelete(userId);
 		return true;
 	} catch (error) {
+		throw error;
+	}
+}
+
+const toggleActive  = async (userId) => {
+	try{
+		const user = await Users.findById(userId);
+		if(!user) throw new Error('User not found');
+
+		user.active = !user.active;
+		await user.save();
+		const result = user.toObject();
+		delete result.password;
+		await socketService.getSocket().toggleActive({
+			userId: user._id,
+			isActive: user.active
+		});
+		return result;
+	}catch(error){
 		throw error;
 	}
 }
@@ -876,46 +973,80 @@ const changePassword = async (userId, currentPassword, newPassword) => {
 		throw error;
 	}
 }
-
-const resetPassword = async (email) => {
+const transporter = nodemailer.createTransport({
+	service: 'gmail',
+	auth: {
+		user: process.env.EMAIL_USER,
+		pass: process.env.EMAIL_PASSWORD
+	}
+})
+const forgotPassword = async (email) => {
 	try {
 		const user = await Users.findOne({ email });
 		if (!user) throw new Error('User not found');
 
-		const newPassword = crypto.randomBytes(4).toString('hex');
-		const hashedPassword = await hashPassword(newPassword);
+		const resetToken = crypto.randomBytes(32).toString('hex');
 
-		user.password = hashedPassword;
-		user.updatedAt = new Date();
+		user.resetPasswordToken = resetToken;
+		user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
 		await user.save();
 
-		const transporter = nodemailer.createTransport({
-			service: 'gmail',
-			auth: {
-				user: process.env.EMAIL,
-				pass: process.env.EMAIL_PASSWORD
-			}
-		})
+		const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
 
 		await transporter.sendMail({
-			from: `InternalChat Admin <${process.env.EMAIL}>`,
+			from: `InternalChat Admin <${process.env.EMAIL_USER}>`,
 			to: email,
 			subject: 'Password Reset - InternalChat',
 			html: `
 			<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-				<h2 style="color: #2c3e50; text-align: center;">Password Reset</h2>
-				<p>Hello ${user.name},</p>
-				<p>Your password for InternalChat has been reset. Your new temporary password is:</p>
-				<div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #3498db; margin: 20px 0; text-align: center; font-family: monospace; font-size: 18px;">
-					${newPassword}
-				</div>
-				<p>Please log in with this temporary password and change it immediately for security reasons.</p>
-				<p style="color: #e74c3c;"><strong>Note:</strong> If you did not request this password reset, please contact your administrator immediately.</p>
-				<hr style="border: 0; border-top: 1px solid #eaeaea; margin: 20px 0;">
-				<p style="color: #7f8c8d; font-size: 12px; text-align: center;">This is an automated message. Please do not reply to this email.</p>
+			  <h2 style="color: #2c3e50; text-align: center;">Password Reset</h2>
+			  <p>Hello ${user.name},</p>
+			  <p>You requested a password reset for your InternalChat account.</p>
+			  <p>Please click the button below to reset your password:</p>
+			  <div style="text-align: center; margin: 25px 0;">
+				<a href="${resetUrl}" style="background-color: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Reset Password</a>
+			  </div>
+			  <p>This link will expire in 1 hour.</p>
+			  <p style="color: #e74c3c;"><strong>Note:</strong> If you did not request this password reset, please ignore this email and your password will remain unchanged.</p>
+			  <hr style="border: 0; border-top: 1px solid #eaeaea; margin: 20px 0;">
+			  <p style="color: #7f8c8d; font-size: 12px; text-align: center;">This is an automated message. Please do not reply to this email.</p>
 			</div>
-		`
-		})
+			`
+		});
+		return true;
+	} catch (error) {
+		throw error;
+	}
+}
+const resetPassword = async (token, newPassword) => {
+	try {
+		const user = await Users.findOne({
+			resetPasswordToken: token,
+			resetPasswordExpires: { $gt: Date.now() }
+		});
+		if (!user) throw new Error('User not found');
+
+		user.password = await hashPassword(newPassword);
+		user.resetPasswordToken = undefined;
+		user.resetPasswordExpires = undefined;
+		user.updatedAt = new Date();
+		await user.save();
+
+		await transporter.sendMail({
+			from: `InternalChat Admin <${process.env.EMAIL_USER}>`,
+			to: user.email,
+			subject: 'Password Changed - InternalChat',
+			html: `
+			<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+			  <h2 style="color: #2c3e50; text-align: center;">Password Changed</h2>
+			  <p>Hello ${user.name},</p>
+			  <p>Your password for InternalChat has been successfully changed.</p>
+			  <p>If you did not make this change, please contact your administrator immediately.</p>
+			  <hr style="border: 0; border-top: 1px solid #eaeaea; margin: 20px 0;">
+			  <p style="color: #7f8c8d; font-size: 12px; text-align: center;">This is an automated message. Please do not reply to this email.</p>
+			</div>
+			`
+		});
 		return true;
 	} catch (error) {
 		throw error;
@@ -946,7 +1077,7 @@ const getAllUsers = async (queryParams = {}, page = 1, limit = 10) => {
 
 		const skip = (page - 1) * limit;
 		const users = await Users.find(filters)
-			.select('email name phoneNumber employeeId position department status address createdAt updatedAt')
+			.select('email name phoneNumber employeeId position department status address createdAt updatedAt active')
 			.populate('department', 'name')
 			.sort({ createdAt: -1 })
 			.skip(skip)
@@ -988,7 +1119,9 @@ module.exports = {
 	changePassword,
 	updateUser,
 	deleteUser,
+	forgotPassword,
 	resetPassword,
 	getAllUsers,
-	getUserById
+	getUserById,
+	toggleActive
 };

@@ -14,5 +14,6 @@ router.post('/transfer-admin', authentication, conversationController.transferAd
 router.get('/user/:userId', authentication, conversationController.getConversationByUserId);
 router.get('/department', authentication, conversationController.getAllConvDepartment);
 router.get('/department/:id', authentication, conversationController.getAllConvDepartmentById);
+router.post('/archive', authentication, conversationController.archiveConversation);
 
 module.exports = router;

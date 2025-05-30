@@ -100,6 +100,10 @@ const messageSchema = new mongoose.Schema({
 		type: Boolean,
 		default: false
 	},
+	userPinned:{
+		type: mongoose.Schema.Types.ObjectId,
+		ref: 'User'
+	},
 	isEdited:{
 		type: Boolean,
 		default: false

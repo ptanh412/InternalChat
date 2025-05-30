@@ -2,8 +2,11 @@ import axios from "axios";
 import { useState, useEffect } from "react";
 import { MdAdd, MdCancel, MdSave } from "react-icons/md";
 import { useNavigate, useParams } from "react-router-dom"
+import { useAlert } from '../../context/AlertContext'
 
 const EditEmployee = () => {
+    const {showAlert} = useAlert();
+
     const { id } = useParams();
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(false);
@@ -80,6 +83,11 @@ const EditEmployee = () => {
         e.preventDefault();
         setIsLoading(true);
 
+        const originalData = {
+            position: formData.position,
+            department: formData.department
+        }
+
         try {
             let response;
             if (isAddmode) {
@@ -97,17 +105,19 @@ const EditEmployee = () => {
             }
 
             if (response.data.success) {
-                navigate("/accounts");
+                showAlert(isAddmode ? "Employee added successfully!" : "Employee updated successfully!", "success");
+                navigate("/employees");
             }
         } catch (error) {
             console.log("Failed to create/update account: ", error);
+            showAlert("Failed to create/update account", "error");
         } finally {
             setIsLoading(false);
         }
     }
 
     const handleCancel = () => {
-        navigate("/accounts");
+        navigate("/employees");
     };
 
     if (isLoading && !isAddmode) {
@@ -120,7 +130,7 @@ const EditEmployee = () => {
                 <h1 className="font-bold text-2xl dark:text-white">{isAddmode ? 'Add New Employee' : 'Edit Employee'}</h1>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6 dark:bg-neutral-800">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden border border-indigo-100 dark:border-slate-700 p-6">
                 <form onSubmit={handleSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 ">
                         <div className="space-y-3">
@@ -134,7 +144,7 @@ const EditEmployee = () => {
                                 name="name"
                                 value={formData.name}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             />
                         </div>
@@ -148,7 +158,7 @@ const EditEmployee = () => {
                                 name="position"
                                 value={formData.position}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             >
                                 <option value="">Select Position</option>
@@ -167,7 +177,7 @@ const EditEmployee = () => {
                                 name="department"
                                 value={formData.department}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             >
                                 <option value="">Select Department</option>
@@ -187,7 +197,7 @@ const EditEmployee = () => {
                                 name="phoneNumber"
                                 value={formData.phoneNumber}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             />
                         </div>
@@ -202,7 +212,7 @@ const EditEmployee = () => {
                                 name="address"
                                 value={formData.address}
                                 onChange={handleChange}
-                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-neutral-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 dark:bg-neutral-800 dark:text-white dark:border-neutral-700"
+                                className="w-full pl-4 pr-4 py-2 rounded-lg border border-indigo-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 text-slate-800 dark:text-white"
                                 required
                             />
                         </div>
@@ -219,8 +229,8 @@ const EditEmployee = () => {
                         <button
                             type="submit"
                             onClick={handleSubmit}
-                            className="flex items-center space-x-2 bg-neutral-500 text-white px-4 py-2 rounded-lg hover:bg-neutral-600 transition-all duration-200"
-                        >
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300 shadow-md hover:shadow-lg"
+                            >
                             {isAddmode ? <MdAdd className="text-xl" /> : <MdSave className="text-xl" />}
                             <span>{isAddmode ? 'Add Employee' : 'Update Employee'}</span>
                         </button>

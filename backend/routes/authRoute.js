@@ -25,12 +25,13 @@ router.post('/change-password', authentication, [
 ], authController.changePassword);
 
 router.put('/update-user/:userId', authentication, authController.updateUser);
+router.put('/toggle-active/:userId', authentication, authController.toggleActive);
 
-// router.delete('/delete-user', authentication, authController.deleteUser);
+router.delete('/delete-user/:userId', authentication, authController.deleteUser);
 
-router.post('/reset-password', [
-	check('email', 'Email is required').isEmail()
-], authController.resetPassword);
+router.post('/reset-password', authController.resetPassword);
+router.post('/forgot-password', authController.forgotPassword);
+
 
 router.get('/get-user', authentication, authController.getUsers);
 router.get('/get-user/:userId', authentication, authController.getUserId);

@@ -5,7 +5,7 @@ const conversationSchema = new mongoose.Schema({
 		type: Boolean,
 		default: true
 	},
-	type: {
+	type: {	
 		type: String,
 		required: true,
 		enum: ['private', 'group', 'department'],
@@ -30,14 +30,6 @@ const conversationSchema = new mongoose.Schema({
 	departmentId:{
 		type: mongoose.Schema.Types.ObjectId,
 		ref: 'Department',
-	},
-	pinned: {
-		type: Boolean,
-		default: false
-	},
-	isArchived: {
-		type: Boolean,
-		default: false
 	},
 	createdAt: {
 		type: Date,
