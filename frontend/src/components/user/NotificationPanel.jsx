@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { IoMdNotificationsOff } from 'react-icons/io';
 import { BsCheck2All } from 'react-icons/bs';
 import { RiDeleteBin6Line } from 'react-icons/ri';
+import { HiStar, HiUser, HiOfficeBuilding, HiShieldCheck } from 'react-icons/hi';
+import { BsBellFill } from 'react-icons/bs';
 import axios from 'axios';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -34,6 +36,32 @@ const NotificationPanel = ({ isOpen }) => {
     if (diffDays < 7) return `${diffDays}d ago`;
 
     return date.toLocaleDateString();
+  };
+
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case 'system_position_change':
+        return <HiStar className="w-4 h-4 text-amber-500" />;
+      case 'system_member_joined':
+        return <HiUser className="w-4 h-4 text-green-500" />;
+      case 'system_member_removed':
+        return <HiOfficeBuilding className="w-4 h-4 text-red-500" />;
+      default:
+        return <HiShieldCheck className="w-4 h-4 text-blue-500" />;
+    }
+  };
+
+  const getNotificationBadgeColor = (type) => {
+    switch (type) {
+      case 'system_position_change':
+        return 'bg-gradient-to-r from-amber-400 to-orange-500';
+      case 'system_member_joined':
+        return 'bg-gradient-to-r from-green-400 to-emerald-500';
+      case 'system_member_removed':
+        return 'bg-gradient-to-r from-red-400 to-rose-500';
+      default:
+        return 'bg-gradient-to-r from-blue-400 to-indigo-500';
+    }
   };
 
   const renderContentNotification = (notification) => {
@@ -112,81 +140,137 @@ const NotificationPanel = ({ isOpen }) => {
     // // Default fallback
     // return metadata.content || "System notification";
   };
-
   return (
-    <div
-      // ref={notificationRef}
-      className="absolute w-64 bg-white dark:bg-neutral-800 shadow-lg rounded-lg p-2 overflow-hidden left-0 top-1 z-[9999]"
-    >
-      <div className="flex justify-between items-center mb-2 border-b pb-2 dark:border-neutral-700">
-        <h3 className="font-medium text-gray-800 dark:text-white">Notifications</h3>
-        <div className="flex space-x-2">
-          <button
-            onClick={markAllAsRead}
-            className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-            title="Mark all as read"
-          >
-            <BsCheck2All className="text-lg" />
-          </button>
-          <button
-            // onClick={deleteAllNotifications}
-            className="text-sm text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
-            title="Delete all"
-          >
-            <RiDeleteBin6Line className="text-lg" />
-          </button>
+    <div className="absolute w-80 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-xl shadow-2xl rounded-2xl overflow-hidden left-0 top-1 z-[9999] border border-gray-200/50 dark:border-neutral-700/50">
+      {/* Header with gradient */}
+      <div className="relative bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-600 p-4">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20"></div>
+        <div className="relative flex justify-between items-center">
+          <div className="flex items-center space-x-2">
+            <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+              <BsBellFill className="w-4 h-4 text-white" />
+            </div>
+            <h3 className="font-semibold text-white text-lg">Notifications</h3>
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={markAllAsRead}
+              className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition-all duration-200 transform hover:scale-105 backdrop-blur-sm"
+              title="Mark all as read"
+            >
+              <BsCheck2All className="w-4 h-4 text-white" />
+            </button>
+            <button
+              // onClick={deleteAllNotifications}
+              className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition-all duration-200 transform hover:scale-105 backdrop-blur-sm"
+              title="Delete all"
+            >
+              <RiDeleteBin6Line className="w-4 h-4 text-white" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="max-h-64 overflow-y-auto scrollbar-none">
+      {/* Content area */}
+      <div className="max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-400 dark:hover:scrollbar-thumb-gray-500">
         {loading ? (
-          <div className="py-4 text-center text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="py-8 text-center">
+            <div className="inline-flex items-center space-x-2 text-gray-500 dark:text-gray-400">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading notifications...</span>
+            </div>
+          </div>
         ) : error ? (
-          <div className="py-4 text-center text-red-500 dark:text-red-400">{error}</div>
+          <div className="py-8 text-center">
+            <div className="inline-flex items-center space-x-2 text-red-500 dark:text-red-400">
+              <div className="w-4 h-4 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+              </div>
+              <span>{error}</span>
+            </div>
+          </div>
         ) : notifications.length === 0 ? (
-          <div className="py-6 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center">
-            <IoMdNotificationsOff className="text-3xl mb-2" />
-            <p>No notifications</p>
+          <div className="py-12 text-center">
+            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-full flex items-center justify-center mb-4">
+              <IoMdNotificationsOff className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+            </div>
+            <p className="text-gray-500 dark:text-gray-400 font-medium">No notifications yet</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">You're all caught up!</p>
           </div>
         ) : (
-          <ul>
-            {notifications.map((notification) => (
-               <li
-               key={notification?._id}
-               className={`p-2 border-b last:border-0 dark:border-neutral-700 hover:bg-gray-50 dark:hover:bg-neutral-700 relative ${!notification?.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-             >
-                <div className="flex items-start">
-                  <img
-                    src={notification?.sender?.avatar}
-                    alt=""
-                    className="w-8 h-8 rounded-full mr-2"
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-800 dark:text-gray-200">
-                      <span className="font-medium">{notification?.sender?.username}</span>{' '}
-                      {notification?.metadata ? (
-                        renderContentNotification(notification)
-                      ) : (
-                        notification?.content
-                      )}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {formatTimeAgo(notification?.createdAt)}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => deleteNotification(notification?._id)}
-                    className="text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 ml-1"
-                  >
-                    <RiDeleteBin6Line />
-                  </button>
-                </div>
+          <div className="p-2">
+            {notifications.map((notification, index) => (
+              <div
+                key={notification?._id}
+                className={`group relative mb-2 last:mb-0 rounded-xl transition-all duration-300 transform hover:scale-[1.02] ${
+                  !notification?.isRead 
+                    ? 'bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-900/20 dark:to-indigo-900/20 shadow-md' 
+                    : 'bg-white/60 dark:bg-neutral-800/60 hover:bg-gray-50/80 dark:hover:bg-neutral-700/80'
+                } backdrop-blur-sm border border-gray-200/30 dark:border-neutral-700/30 hover:border-gray-300/50 dark:hover:border-neutral-600/50 hover:shadow-lg`}
+              >
+                {/* Notification indicator */}
                 {!notification?.isRead && (
-                  <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500"></div>
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 shadow-lg animate-pulse"></div>
                 )}
-              </li>
+                
+                <div className="p-4">
+                  <div className="flex items-start space-x-3">
+                    {/* Avatar with status indicator */}
+                    <div className="relative flex-shrink-0">
+                      <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-white dark:ring-neutral-800 shadow-md">
+                        <img
+                          src={notification?.sender?.avatar}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      {/* Notification type badge */}
+                      <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full ${getNotificationBadgeColor(notification?.type)} shadow-lg flex items-center justify-center`}>
+                        {getNotificationIcon(notification?.type)}
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {notification?.sender?.username}
+                            </span>{' '}
+                            <span className="text-gray-700 dark:text-gray-300">
+                              {notification?.metadata ? (
+                                renderContentNotification(notification)
+                              ) : (
+                                notification?.content
+                              )}
+                            </span>
+                          </p>
+                          
+                          {/* Timestamp with better styling */}
+                          <div className="flex items-center mt-2 space-x-2">
+                            <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                              {formatTimeAgo(notification?.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Delete button with enhanced styling */}
+                        <button
+                          onClick={() => deleteNotification(notification?._id)}
+                          className="opacity-0 group-hover:opacity-100 ml-2 p-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-all duration-200 transform hover:scale-110 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                          title="Delete notification"
+                        >
+                          <RiDeleteBin6Line className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>

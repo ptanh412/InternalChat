@@ -9,20 +9,25 @@ const File = require('../models/File');
 const User = require('../models/Users');
 const { Readable } = require('stream');
 const contentDisposition = require('content-disposition');
+const encryptionService = require('../utils/encryptionMsg');
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: async (req, file) => {
         let resourceType = 'auto';
         const docTypes = [
+            'application/pdf',
             'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-powerpoint',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/zip',
+            'application/x-rar-compressed',
+            'application/x-7z-compressed'
         ];
 
-        if (docTypes.includes(file.mimetype)) {
+        if (docTypes.includes(file.mimetype) || file.mimetype.startsWith('application/')) {
             resourceType = 'raw';
         }
 
@@ -47,27 +52,112 @@ router.get('/media/:fileId', async (req, res) => {
             return res.status(404).json({ message: 'File not found' });
         }
 
+        // Fetch file from Cloudinary with proper error handling
         const response = await fetch(file.fileUrl);
         if (!response.ok) {
-            return res.status(500).json({ message: 'Error fetching file' });
+            console.error(`Failed to fetch file from Cloudinary: ${response.status} ${response.statusText}`);
+            return res.status(500).json({ message: 'Error fetching file from storage' });
         }
 
-        res.setHeader('Content-Type', file.mimeType);
-        const fileName = file.fileName;
+        // Set proper Content-Type header
+        res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+        
+        // Decrypt the filename before setting Content-Disposition header
+        let fileName = file.fileName;
+        if (file.conversationId) {
+            try {
+                fileName = encryptionService.decryptFileName(file.fileName, file.conversationId.toString());
+            } catch (error) {
+                console.error('Error decrypting filename:', error);
+                // Fallback to original filename if decryption fails
+                fileName = file.original || file.fileName;
+            }
+        }
+        
+        // For non-image files, force download with proper filename
         if (['document', 'spreadsheet', 'presentation', 'archive', 'pdf'].includes(file.fileType)) {
             res.setHeader(
                 'Content-Disposition',
                 contentDisposition(fileName, { type: 'attachment' })
             );
         }
-        if (typeof Readable.fromWeb === 'function') {
-            Readable.fromWeb(response.body).pipe(res);
-        } else {
-            const stream = Readable.from(response.body);
-            stream.pipe(res);
+
+        // Handle different Node.js versions for streaming
+        try {
+            if (typeof Readable.fromWeb === 'function') {
+                // Node.js 16.5+ with Web Streams support
+                Readable.fromWeb(response.body).pipe(res);
+            } else {
+                // Fallback for older Node.js versions
+                const buffer = await response.arrayBuffer();
+                res.send(Buffer.from(buffer));
+            }
+        } catch (streamError) {
+            console.error('Error streaming file:', streamError);
+            // Final fallback - send as buffer
+            const buffer = await response.arrayBuffer();
+            res.send(Buffer.from(buffer));
+        }    } catch (err) {
+        console.error("Error fetching media:", err);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+router.get('/download/:fileId', authMiddleware, async (req, res) => {
+    try {
+        const fileId = req.params.fileId;
+        const file = await File.findById(fileId);
+
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        // Fetch file from Cloudinary with proper error handling
+        const response = await fetch(file.fileUrl);
+        if (!response.ok) {
+            console.error(`Failed to fetch file from Cloudinary: ${response.status} ${response.statusText}`);
+            return res.status(500).json({ message: 'Error fetching file from storage' });
+        }
+
+        // Set proper Content-Type header
+        res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+        
+        // Decrypt the filename before setting Content-Disposition header
+        let fileName = file.fileName;
+        if (file.conversationId) {
+            try {
+                fileName = encryptionService.decryptFileName(file.fileName, file.conversationId.toString());
+            } catch (error) {
+                console.error('Error decrypting filename:', error);
+                // Fallback to original filename if decryption fails
+                fileName = file.original || file.fileName;
+            }
+        }
+        
+        // Force download with proper filename for all file types
+        res.setHeader(
+            'Content-Disposition',
+            contentDisposition(fileName, { type: 'attachment' })
+        );
+
+        // Handle different Node.js versions for streaming
+        try {
+            if (typeof Readable.fromWeb === 'function') {
+                // Node.js 16.5+ with Web Streams support
+                Readable.fromWeb(response.body).pipe(res);
+            } else {
+                // Fallback for older Node.js versions
+                const buffer = await response.arrayBuffer();
+                res.send(Buffer.from(buffer));
+            }
+        } catch (streamError) {
+            console.error('Error streaming file:', streamError);
+            // Final fallback - send as buffer
+            const buffer = await response.arrayBuffer();
+            res.send(Buffer.from(buffer));
         }
     } catch (err) {
-        console.error("Error fetching media:", err);
+        console.error("Error downloading file:", err);
         return res.status(500).json({ message: 'Internal server error' });
     }
 });

@@ -114,10 +114,23 @@ const messageSchema = new mongoose.Schema({
 	},
 });
 
-messageSchema.index({conversationId: 1, createdAt: 1});
+// Compound index for efficient message fetching with pagination
+messageSchema.index({conversationId: 1, createdAt: -1});
+// Index for user-specific queries
 messageSchema.index({sender: 1});
+// Index for reply functionality
 messageSchema.index({replyTo: 1});
-messageSchema.index({isPinned: 1});
+// Index for pinned messages
+messageSchema.index({isPinned: 1, conversationId: 1});
+// Index for read status queries
+messageSchema.index({readBy: 1});
+// Index for recalled messages
+messageSchema.index({isRecalled: 1});
+// Compound index for status and conversation queries
+messageSchema.index({conversationId: 1, status: 1, createdAt: -1});
+
+messageSchema.index({conversationId: 1, createdAt: -1, _id: 1}); // Thêm _id cho cursor pagination
+messageSchema.index({conversationId: 1, sender: 1, createdAt: -1}); // Tối ưu cho populate sender
 
 messageSchema.pre('save', async function(next) {
 	if (this.attachments && this.attachments.length > 0) {

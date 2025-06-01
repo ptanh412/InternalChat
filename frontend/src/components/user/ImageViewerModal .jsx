@@ -24,39 +24,45 @@ const ImageViewerModal = ({
 
     const handlePrevious = useCallback(() => {
         setCurrentIndex((prevIndex) => (prevIndex - 1 + images.length) % images.length);
-    }, [images.length]);
-
-    const handleDownload = useCallback(() => {
+    }, [images.length]);    const handleDownload = useCallback(async () => {
         if (images[currentIndex]) {
             const currentImage = images[currentIndex];
-            const downloadUrl = currentImage.fileUrl;
-
-            // Xử lý tải xuống hình ảnh từ Cloudinary
-            fetch(downloadUrl)
-                .then(response => response.blob())
-                .then(blob => {
-                    // Tạo URL đối tượng cho blob
-                    const blobUrl = window.URL.createObjectURL(blob);
-
-                    // Tạo thẻ a để tải xuống
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = currentImage.fileName || `image-${currentImage._id}`;
-
-                    // Thêm vào DOM, kích hoạt và xóa
-                    document.body.appendChild(link);
-                    link.click();
-
-                    // Dọn dẹp
-                    setTimeout(() => {
-                        document.body.removeChild(link);
-                        window.URL.revokeObjectURL(blobUrl);
-                    }, 100);
-                })
-                .catch(error => {
-                    console.error("Lỗi khi tải xuống hình ảnh:", error);
-                    alert("Không thể tải xuống hình ảnh. Vui lòng thử lại sau.");
+            
+            try {
+                const downloadUrl = `http://localhost:5000/api/file/download/${currentImage._id}`;
+                
+                // Fetch the file with proper headers
+                const response = await fetch(downloadUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
                 });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // Get the blob data
+                const blob = await response.blob();
+                
+                // Create a download link
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = currentImage.fileName || `image-${currentImage._id}`;
+                
+                // Trigger download
+                document.body.appendChild(link);
+                link.click();
+                
+                // Cleanup
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error("Error downloading image:", error);
+                alert("Unable to download image. Please try again later.");
+            }
         }
     }, [currentIndex, images]);
 

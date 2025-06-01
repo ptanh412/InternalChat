@@ -317,7 +317,6 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 		}
 
 		await socketService.getSocket().createUpdateNotification(user, originalValues, updateData, adminUser);
-
 		await socketService.getSocket().emitRoleUpdate({
 			userId: user._id,
 			oldDepartmentId: oldDepartmentId,
@@ -327,7 +326,12 @@ const updateUser = async (userId, updateData, adminUser = null) => {
 			adminId: adminUser
 		});
 
-		const result = user.toObject();
+		// Fetch the updated user with populated department information
+		const updatedUser = await Users.findById(userId)
+			.select('email name phoneNumber employeeId position department address createdAt updatedAt')
+			.populate('department', 'name');
+
+		const result = updatedUser.toObject();
 		delete result.password;
 		await socketService.getSocket().notifyUserUpdate(result);
 		return result;
@@ -898,7 +902,13 @@ const toggleActive  = async (userId) => {
 
 		user.active = !user.active;
 		await user.save();
-		const result = user.toObject();
+		
+		// Fetch the updated user with populated department information
+		const updatedUser = await Users.findById(userId)
+			.select('email name phoneNumber employeeId position department address createdAt updatedAt active')
+			.populate('department', 'name');
+		
+		const result = updatedUser.toObject();
 		delete result.password;
 		await socketService.getSocket().toggleActive({
 			userId: user._id,

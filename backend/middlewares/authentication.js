@@ -11,9 +11,8 @@ const authentication = async (req, res, next) => {
 				message: 'Unauthorized'
 			});
 		}
-
 		const decode = verifyToken(token);
-		const user = await Users.findById(decode.userId).populate('role');
+		const user = await Users.findById(decode.userId).populate('role').populate('department', 'name');
 		if (!user){
 			return res.status(401).json({
 				success: false,

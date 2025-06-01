@@ -12,7 +12,7 @@ import MenuPortal from './MenuPortal';
 import clientEncryptionService from "../../helper/encryptionService";
 
 
-const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
+const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversationId }) => {
     const [conversations, setConversations] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
     const menuRefs = useRef({});
@@ -23,6 +23,13 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
     const [selectedConversationId, setSelectedConversationId] = useState(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState("all"); // State to track the active tab
+
+    // Handle highlighting when highlightConversationId changes
+    useEffect(() => {
+        if (highlightConversationId) {
+            setSelectedConversationId(highlightConversationId);
+        }
+    }, [highlightConversationId]);
 
     useEffect(() => {
         if (pendingGroupChat && pendingGroupChat.creator === user._id) {
@@ -93,26 +100,38 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
             refreshUserStatus();
             updateConversationsWithStatus();
         }, 15000);
+        const handleChatNew = (data) => {
+            console.log('Received chat:new event:', data);
 
-        socket.on('chat:new', (data) => {
             setConversations(prev => {
                 const updatedConversations = [...prev];
-
                 const existingConvIndex = updatedConversations.findIndex(
-                    conv => conv.conversationInfo._id === data.conversationInfo._id
+                    conv => conv.conversationInfo._id === data.newConversation._id
                 );
 
                 if (existingConvIndex !== -1) {
+                    // Update existing conversation
                     updatedConversations[existingConvIndex] = {
                         ...updatedConversations[existingConvIndex],
-                        ...data
+                        conversationInfo: data.newConversation,
+                        unreadCount: data.newConversation.lastMessage ? 1 : 0
                     };
                 } else {
-                    updatedConversations.push(data);
+                    // Add new conversation
+                    updatedConversations.push({
+                        conversationInfo: data.newConversation,
+                        unreadCount: data.newConversation.lastMessage ? 1 : 0
+                    });
+
+                    // **QUAN TRỌNG**: Join room để nhận message:new
+                    socket.emit('conversation:enter', { conversationId: data.newConversation._id });
                 }
+
                 return updatedConversations;
-            })
-        });
+            });
+        };
+        socket.on('chat:new', handleChatNew); // **THÊM**
+
         socket.on('message:sent', (data) => {
             console.log('=====Message sent=====');
             console.log('Conversation info id:', data.message.conversationId);
@@ -152,7 +171,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                     return [...prev, data];
                 }
             });
-        }); 
+        });
         const handleNewMessage = (data) => {
             console.log('Received message:new event:', data);
             console.log('Current conversations state:', conversations.map(c => c.conversationInfo?._id));
@@ -423,7 +442,8 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
         socket.on('chat:update', handleChatUpdate);
         socket.on('group:removed', handleRemoveMembers);
         socket.on('group:left', handleRemoveMembers);
-        socket.on('group:added', handleGroupAdded); socket.on('conversation:update', async (data) => {
+        socket.on('group:added', handleGroupAdded);
+        socket.on('conversation:update', async (data) => {
             // Decrypt the last message content and attachments if they exist
             let lastMessage = data.lastMessage;
             if (lastMessage && lastMessage.content) {
@@ -534,10 +554,33 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                     return conv;
                 });
             });
-        }
-
-        // Đăng ký listener cho message:recall-success
+        }        // Đăng ký listener cho message:recall-success
         socket.on('message:recall-success', handleRecallMessage);
+        // Listen for chat:loaded events to sync activeConv state when conversations are loaded externally
+        socket.on('chat:loaded', (data) => {
+            if (data && data.conversation) {
+                console.log('ConversationList: Syncing activeConv from external chat:loaded:', data.conversation._id);
+                setActiveConv(data.conversation);
+                setSelectedConversationId(data.conversation._id);
+
+                // Update the current chat in the main Chat component
+                setCurrentChat(data.conversation);
+
+                // Handle socket events for permanent conversations
+                if (!data.isTemporary) {
+                    socket.emit('conversation:mark-read', {
+                        conversationId: data.conversation._id
+                    });
+                    console.log(`ConversationList: Entering conversation: ${data.conversation._id}`);
+                    socket.emit('conversation:enter', {
+                        conversationId: data.conversation._id,
+                    });
+                } else {
+                    console.log('ConversationList: Skipping socket emissions for temporary conversation:', data.conversation._id);
+                }
+            }
+        });
+
         socket.on('user:updated', (data) => {
             if (data.userId === user._id) {
                 setConversations(prev => {
@@ -590,13 +633,12 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                     });
                 });
             }
-        })
-
-        // Cleanup function
+        })        // Cleanup function
         return () => {
             console.log('Cleaning up socket listeners in ConversationList');
             socket.off('message:recall-success');
-            socket.off('chat:new');
+            socket.off('chat:loaded');
+            socket.off('chat:new', handleChatNew);
             socket.off('message:new', handleNewMessage);
             socket.off('chat:update', handleChatUpdate);
             socket.off('group:created');
@@ -719,7 +761,8 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
             socket.off('message:unpin-success', handleUnPinSuccess);
             socket.off('conversation:pin-success', handlePinConversation);
         };
-    }, [socket, conversations]); const fetchConversations = async () => {
+    }, [socket, conversations]);
+    const fetchConversations = async () => {
         try {
             const response = await axios.get(`http://localhost:5000/api/conversation/user/${user._id}`, {
                 headers: {
@@ -837,24 +880,26 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
         // const ampm = hours >= 12 ? "PM" : "AM";
         // return `${hours % 12}:${minutes < 10 ? '0' : ''}${minutes} ${ampm}`;
     };
-
     const handleConversationClick = (conversation) => {
         console.log('Clicked conversation:', conversation);
         setSelectedConversationId(conversation._id);
-        if (activeConv) {
+
+        // Leave previous conversation if exists
+        if (activeConv && !activeConv.isTemporary) {
             socket.emit('conversation:leave', {
                 conversationId: activeConv._id
             });
         }
-        console.log(`Joining room: ${conversation._id}`);
-        socket.off('chat:loaded'); // Gỡ bỏ listener trước khi thêm mới
 
+        console.log(`Joining room: ${conversation._id}`);
+
+        // Update unread count and mark as read
         setConversations(prev =>
             prev.map(conv =>
                 conv.conversationInfo._id === conversation._id
                     ? {
                         ...conv,
-                        unreadCount: 0, // Đặt lại số lượng chưa đọc
+                        unreadCount: 0, // Reset unread count
                         conversationInfo: {
                             ...conv.conversationInfo,
                             lastMessage: conv.conversationInfo.lastMessage
@@ -869,33 +914,8 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
 
         setCurrentChat(conversation);
         console.log('Setting current chat:', conversation);
-        socket.on('chat:loaded', (data) => {
-            console.log('Received chat:loaded data:', data);
 
-            if (!data || !data.conversation) {
-                console.error('No conversation data received', data);
-                return;
-            }
-            const chatToSet = {
-                ...data.conversation,
-                conversationType: conversation.type,
-                members: data.conversation.members || []
-            };
-
-            setCurrentChat(chatToSet);
-
-            socket.emit('conversation:mark-read', {
-                conversationId: data.conversation._id
-            });
-            console.log(`Entering conversation: ${data.conversation._id}`);
-            socket.emit('conversation:enter', {
-                conversationId: data.conversation._id,
-            });
-
-            setActiveConv(data.conversation);
-        });
-
-        // Emit sự kiện chat:init
+        // Emit chat:init - the existing chat:loaded listeners will handle the response
         socket.emit('chat:init', {
             contactId: conversation._id,
             conversationType: conversation.type,
@@ -1064,7 +1084,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                 return msg.sender._id === user._id ? "You recalled a message" : msg.content;
             }
         }
-        const isSender = msg.sender._id === user._id || msg.sender === user._id;
+        const isSender = msg.sender._id === user._id || msg.sender === user._id || null;
 
         if (conversationType === 'private') {
             return isSender ? `You: ${msg.content}` : msg.content;
@@ -1177,19 +1197,19 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
     })
 
     const filteredConversationArchive = conversations.filter(chat => {
-        const isArchived = chat.conversationInfo.archived;
+        const isArchived = chat.conversationInfo?.archived;
         return (activeTab === "all" && !isArchived) || (activeTab === "archived" && isArchived);
     })
     // console.log('Filtered conversations:', filteredConversationArchive);
-    const channelConversations = filteredConversationArchive.filter(chat => chat.conversationInfo.type === 'department' && !chat.conversationInfo.archived);
-    const groupConversations = filteredConversationArchive.filter(chat => chat.conversationInfo.type === 'group' && !chat.conversationInfo.archived);
-    const channelConversationsUnArchived = filteredConversationArchive.filter(chat => chat.conversationInfo.type === 'department' && chat.conversationInfo.archived);
-    const groupConversationsUnArchived = filteredConversationArchive.filter(chat => chat.conversationInfo.type === 'group' && chat.conversationInfo.archived);
+    const channelConversations = filteredConversationArchive.filter(chat => chat.conversationInfo?.type === 'department' && !chat.conversationInfo?.archived);
+    const groupConversations = filteredConversationArchive.filter(chat => chat.conversationInfo?.type === 'group' && !chat.conversationInfo?.archived);
+    const channelConversationsUnArchived = filteredConversationArchive.filter(chat => chat.conversationInfo?.type === 'department' && chat.conversationInfo?.archived);
+    const groupConversationsUnArchived = filteredConversationArchive.filter(chat => chat.conversationInfo?.type === 'group' && chat.conversationInfo?.archived);
 
     const searchResults = searchQuery ? filteredConversations : [];
 
     return (
-        <div className="p-6 w-full h-full bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-neutral-950 dark:text-white shadow-2xl border-none backdrop-blur-sm">
+        <div className="p-6 w-full bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-neutral-950 dark:text-white shadow-2xl border-none backdrop-blur-sm">
             <div className="relative mb-8">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl blur-xl"></div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
@@ -1253,10 +1273,10 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                         })}
                     </div>
                 )}
-            </div>
+            </div>             {/* start private conversation  */}
             <div className="mt-6">
-                {conversations.filter(conv => conv.conversationInfo.type === 'private').length > 0 ? (
-                    <div className="flex flex-wrap justify-center gap-4">
+                {conversations.filter(conv => conv.conversationInfo?.type === 'private').length > 0 ? (
+                    <div className="flex gap-4 overflow-x-auto scrollbar-none pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                         {conversations
                             .filter(conv => conv.conversationInfo.type === 'private')
                             .map((chat) => {
@@ -1270,7 +1290,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                                 return (
                                     <div
                                         key={chat.conversationInfo._id}
-                                        className={`relative cursor-pointer p-4 transition-all duration-200 transform hover:scale-105
+                                        className={`relative cursor-pointer p-4 transition-all duration-200 transform hover:scale-105 flex-shrink-0
                                             ${isSelected ? 'scale-105' : ''}`}
                                         onClick={() => handleConversationClick(chat.conversationInfo)}
                                     >
@@ -1296,8 +1316,9 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                                                     <div className="w-3 h-3 bg-gray-500 rounded-full absolute top-8 right-0 z-20 ring-2 ring-white dark:ring-neutral-800"></div>
                                                 )}
                                             </div>
-                                            <div className={`font-semibold text-sm text-center mt-1 z-10 
-                                                ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'dark:text-white'}`}>
+                                            <div className={`font-semibold text-sm text-center mt-1 z-10 max-w-20 truncate
+                                                ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'dark:text-white'}`}
+                                                title={otherUser?.name}>
                                                 {otherUser?.name}
                                             </div>
                                         </div>
@@ -1312,7 +1333,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                 )}
 
             </div>
-
+            {/* end private conversation  */}
             <div className="flex justify-between items-center mt-6 mb-2">
                 <h1
                     onClick={() => setActiveTab('all')}
@@ -1321,7 +1342,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                         : "bg-neutral-300 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300"
                         }`}
                 >
-                    All ({conversations.filter(chat => !chat.conversationInfo.archived).length})
+                    All ({conversations.filter(chat => !chat.conversationInfo?.archived).length})
                 </h1>
                 <h1
                     onClick={() => setActiveTab("archived")}
@@ -1330,7 +1351,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                         : "bg-neutral-300 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300"
                         }`}
                 >
-                    Archived ({conversations.filter(chat => chat.conversationInfo.archived).length})
+                    Archived ({conversations.filter(chat => chat.conversationInfo?.archived).length})
                 </h1>
             </div>
             {activeTab === "all" ? (
@@ -1611,7 +1632,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat }) => {
                             Recent
                         </h1>
                         <div className="max-h-[300px] overflow-y-auto scrollbar-none">
-                            {conversations.filter(conv => conv.conversationInfo.type === 'private' && !conv.conversationInfo.archived).length > 0 ? (
+                            {conversations.filter(conv => conv.conversationInfo?.type === 'private' && !conv.conversationInfo?.archived).length > 0 ? (
                                 conversations.map((chat) => {
                                     let otherUser = null;
                                     if (chat.conversationInfo.type === 'private') {

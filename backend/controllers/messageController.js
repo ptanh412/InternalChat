@@ -111,18 +111,81 @@ const react = async (req, res) =>{
 const getMessageByConv = async (req, res) =>{
     try {
         const {conversationId} = req.params;
+        const { page = 1, limit = 1000, before } = req.query;
 
         if (!conversationId) {
             throw new Error('Conversation ID is required');
         }
 
-        const messages = await messageService.getMessageByConversationId(conversationId);
+        // Convert string query params to numbers
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+
+        // Validate pagination parameters
+        if (pageNum < 1) {
+            throw new Error('Page must be greater than 0');
+        }
+        // if (limitNum < 1 || limitNum > 100) {
+        //     throw new Error('Limit must be between 1 and 100');
+        // }
+
+        const result = await messageService.getMessageByConversationId(conversationId, {
+            page: pageNum,
+            limit: limitNum,
+            before: before || null
+        });
 
         return res.status(200).json({
             success: true,
-            data: messages
+            data: result.messages,
+            pagination: result.pagination
         });
     }catch(error){
+        res.status(400).send({message: error.message});
+    }
+}
+
+const getRecentMessages = async (req, res) => {
+    try {
+        const {conversationId} = req.params;
+        const { limit = 1000 } = req.query;
+
+        if (!conversationId) {
+            throw new Error('Conversation ID is required');
+        }        // Convert string query param to number
+        const limitNum = parseInt(limit, 10);
+
+        // Validate limit parameter
+        if (limitNum < 1 || limitNum > 50) {
+            throw new Error('Limit must be between 1 and 50');
+        }
+
+        const messages = await messageService.getRecentMessages(conversationId, limitNum);
+
+        return res.status(200).json({
+            success: true,
+            data: messages,
+            count: messages.length
+        });
+    }catch(error){
+        res.status(400).send({message: error.message});
+    }
+}
+
+const getMultimediaMessages = async (req, res) => {
+    try {
+        const { limit = 50 } = req.query;
+        const limitNum = parseInt(limit, 10);
+
+        // Validate limit parameter
+        if (limitNum < 1 || limitNum > 50) {
+            throw new Error('Limit must be between 1 and 50');
+        }
+
+        const multimediaMessages = await messageService.getMultimediaMessages(limitNum);
+        res.status(200).json(multimediaMessages);
+    } catch (error) {
+        console.error("Error getting multimedia messages:", error);
         res.status(400).send({message: error.message});
     }
 }
@@ -132,5 +195,7 @@ module.exports = {
     edit,
     recall,
     react,
-    getMessageByConv
+    getMessageByConv,
+    getRecentMessages,
+    getMultimediaMessages
 }

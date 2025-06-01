@@ -1,6 +1,92 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom animations for notification panel */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.33);
+  }
+  40%,
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
+.notification-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.notification-item-enter {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: inherit;
+  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* Enhanced scrollbar */
+.scrollbar-notification::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-notification::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-notification::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.scrollbar-notification::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #94a3b8, #64748b);
+}
+
+.dark .scrollbar-notification::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #4b5563, #374151);
+}
+
+.dark .scrollbar-notification::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #374151, #1f2937);
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

@@ -310,6 +310,21 @@ const createConvGroup = async (groupData, creator) => {
 			creator: creator._id,
 		});
 
+		// Create welcome message as the first message in the group
+		const welcomeMessage = await Messages.create({
+			conversationId: conversation._id,
+			content: `Welcome to ${groupData.name}`,
+			sender: creator._id,
+			type: 'system',
+			sentAt: new Date()
+		});
+
+		await Conversations.findByIdAndUpdate(
+			conversation._id,
+			{ $set: { lastMessage: welcomeMessage._id } },
+			{ new: true }
+		).lean().exec();
+
 		await ConversationMember.create({
 			conversationId: conversation._id,
 			memberId: creator._id,
@@ -339,13 +354,6 @@ const createConvGroup = async (groupData, creator) => {
 				}
 			});
 		};
-
-		await socketService.getSocket().createPersonalizedSystemmessage({
-			conversationId: conversation._id,
-			actorId: creator._id,
-			action: 'create_conversation',
-			data: { conversationName: conversation.name }
-		})
 
 		return conversation;
 	} catch (error) {

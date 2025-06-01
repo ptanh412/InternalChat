@@ -9,10 +9,9 @@ const socketAuth = async (socket, next) => {
 		if (!token) {
 			throw new Error('Authentication failed');
 		}
-
 		const decoded = verifyToken(token);
 
-		const user = await Users.findById(decoded.userId).populate('role');
+		const user = await Users.findById(decoded.userId).populate('role').populate('department', 'name');
 
 		if (!user) {
 			throw new Error('Authentication failed');

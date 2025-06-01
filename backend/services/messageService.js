@@ -380,15 +380,28 @@ const removeReaction = async ({ messageId, userId, emoji }) => {
     }
 }
 
-const getMessageByConversationId = async (conversationId) => {
+const getMessageByConversationId = async (conversationId, { page = 1, limit = 1000, before = null } = {}) => {
     try {
-        const messages = await Messages.find({ conversationId })
+        let query = { conversationId };
+        
+        // If 'before' timestamp is provided, get messages before that time
+        if (before) {
+            query.createdAt = { $lt: new Date(before) };
+        }
+
+        const messages = await Messages.find(query)
+            .sort({ createdAt: -1 }) // Most recent first
+            .limit(limit)
+            .skip((page - 1) * limit)
             .populate('sender', 'name avatar status')
             .populate('replyTo', 'content sender')
             .populate('attachments', 'fileName fileUrl fileType mimeType fileSize thumbnails')
             .populate('reactions.user', 'name avatar')
             .populate('readBy.user', 'name avatar status')
             .lean();
+
+        // Get total count for pagination info
+        const totalMessages = await Messages.countDocuments({ conversationId });
         
         // Decrypt messages before returning to client
         const decryptedMessages = messages.map(message => {
@@ -411,12 +424,234 @@ const getMessageByConversationId = async (conversationId) => {
 
             return decryptedMessage;
         });
+
+        // Reverse to get chronological order (oldest first)
+        const sortedMessages = decryptedMessages.reverse();
         
-        return decryptedMessages; 
+        return {
+            messages: sortedMessages,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalMessages / limit),
+                totalMessages,
+                hasMore: (page * limit) < totalMessages,
+                limit
+            }
+        };
     } catch (error) {
         throw new Error(`Failed to get messages: ${error.message}`);
     }
 };
+
+const getRecentMessages = async (conversationId, limit = 20) => {
+    try {
+        const messages = await Messages.find({ conversationId })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .populate('sender', 'name avatar status')
+            .populate('replyTo', 'content sender')
+            .populate('attachments', 'fileName fileUrl fileType mimeType fileSize thumbnails')
+            .populate('reactions.user', 'name avatar')
+            .populate('readBy.user', 'name avatar status')
+            .lean();
+
+        // Decrypt messages before returning to client
+        const decryptedMessages = messages.map(message => {
+            const decryptedMessage = {
+                ...message,
+                content: message.content ? encryptionService.decryptMessage(message.content, conversationId) : message.content,
+                attachments: message.attachments ? message.attachments.map(attachment => ({
+                    ...attachment,
+                    fileName: attachment.fileName ? encryptionService.decryptFileName(attachment.fileName, conversationId) : attachment.fileName
+                })) : []
+            };
+
+            // Also decrypt replyTo message content if it exists
+            if (decryptedMessage.replyTo && decryptedMessage.replyTo.content) {
+                decryptedMessage.replyTo.content = encryptionService.decryptMessage(
+                    decryptedMessage.replyTo.content,
+                    conversationId
+                );
+            }
+
+            return decryptedMessage;
+        });
+
+        // Reverse to get chronological order (oldest first)
+        return decryptedMessages.reverse();
+    } catch (error) {
+        throw new Error(`Failed to get recent messages: ${error.message}`);
+    }
+};
+
+const getMessagesByConversationOptimized = async (conversationId, { limit = 50, cursor = null, loadRecent = true } = {}) => {
+    try {
+        let query = { conversationId };
+        
+        // Cursor-based pagination thay vì offset-based
+        if (cursor) {
+            if (loadRecent) {
+                query._id = { $lt: cursor };
+            } else {
+                query._id = { $gt: cursor };
+            }
+        }
+
+        // Sử dụng aggregation pipeline để tối ưu performance
+        const pipeline = [
+            { $match: query },
+            { $sort: loadRecent ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 } },
+            { $limit: limit },
+            
+            // Lookup optimized - chỉ lấy các field cần thiết
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'sender',
+                    foreignField: '_id',
+                    as: 'sender',
+                    pipeline: [
+                        { $project: { name: 1, avatar: 1, status: 1 } }
+                    ]
+                }
+            },
+            { $unwind: '$sender' },
+            
+            // Reply lookup - conditional
+            {
+                $lookup: {
+                    from: 'messages',
+                    localField: 'replyTo',
+                    foreignField: '_id',
+                    as: 'replyTo',
+                    pipeline: [
+                        { $project: { content: 1, sender: 1 } },
+                        {
+                            $lookup: {
+                                from: 'users',
+                                localField: 'sender',
+                                foreignField: '_id',
+                                as: 'sender',
+                                pipeline: [{ $project: { name: 1 } }]
+                            }
+                        },
+                        { $unwind: { path: '$sender', preserveNullAndEmptyArrays: true } }
+                    ]
+                }
+            },
+            { $unwind: { path: '$replyTo', preserveNullAndEmptyArrays: true } },
+            
+            // Attachments lookup
+            {
+                $lookup: {
+                    from: 'files',
+                    localField: 'attachments',
+                    foreignField: '_id',
+                    as: 'attachments',
+                    pipeline: [
+                        { $project: { fileName: 1, fileUrl: 1, fileType: 1, mimeType: 1, fileSize: 1, thumbnails: 1 } }
+                    ]
+                }
+            }
+        ];
+
+        const messages = await Messages.aggregate(pipeline);
+        
+        // Decrypt messages
+        const decryptedMessages = messages.map(message => {
+            const decryptedMessage = {
+                ...message,
+                content: message.content ? encryptionService.decryptMessage(message.content, conversationId) : message.content,
+                attachments: message.attachments ? message.attachments.map(attachment => ({
+                    ...attachment,
+                    fileName: attachment.fileName ? encryptionService.decryptFileName(attachment.fileName, conversationId) : attachment.fileName
+                })) : []
+            };
+
+            if (decryptedMessage.replyTo && decryptedMessage.replyTo.content) {
+                decryptedMessage.replyTo.content = encryptionService.decryptMessage(
+                    decryptedMessage.replyTo.content,
+                    conversationId
+                );
+            }
+
+            return decryptedMessage;
+        });
+
+        // Reverse if loading recent messages to get chronological order
+        if (loadRecent) {
+            decryptedMessages.reverse();
+        }
+        
+        return {
+            messages: decryptedMessages,
+            hasMore: messages.length === limit,
+            nextCursor: messages.length > 0 ? messages[messages.length - 1]._id : null
+        };
+    } catch (error) {
+        throw new Error(`Failed to get messages: ${error.message}`);
+    }
+};
+
+// 3. Tối ưu Controller với streaming response
+const getMessageByConvOptimized = async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const { limit = 50, cursor, loadRecent = 'true' } = req.query;
+
+        if (!conversationId) {
+            throw new Error('Conversation ID is required');
+        }
+
+        const limitNum = Math.min(parseInt(limit, 10) || 50, 100);
+        const isLoadRecent = loadRecent === 'true';
+
+        const result = await messageService.getMessagesByConversationOptimized(conversationId, {
+            limit: limitNum,
+            cursor: cursor || null,
+            loadRecent: isLoadRecent
+        });
+
+        // Streaming response cho large datasets
+        res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Transfer-Encoding': 'chunked'
+        });
+
+        const responseData = {
+            success: true,
+            data: result.messages,
+            hasMore: result.hasMore,
+            nextCursor: result.nextCursor,
+            count: result.messages.length
+        };
+
+        res.write(JSON.stringify(responseData));
+        res.end();
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const getMultimediaMessages = async (limit = 50) => {
+    try {
+        const messages = await Messages.find({
+            type: 'multimedia',
+            attachments: { $exists: true, $ne: [] }
+        })
+        .populate('sender', 'name email avatar')
+        .populate('conversationId', 'name avatarGroup type')
+        .populate('attachments')
+        .sort({ createdAt: -1 })
+        .limit(limit);
+
+        return messages;
+    } catch (error) {
+        console.error("Error getting multimedia messages:", error);
+        throw error;
+    }
+};
+
 module.exports = {
     createSystemMessage,
     pinnedMessage,
@@ -427,5 +662,9 @@ module.exports = {
     reactToMessage,
     replyMessage,
     removeReaction,
-    getMessageByConversationId
+    getMessageByConversationId,
+    getRecentMessages,
+    getMessagesByConversationOptimized,
+    getMessageByConvOptimized,
+    getMultimediaMessages
 }

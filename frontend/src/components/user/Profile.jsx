@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useUser } from "../../context/UserContext";
 import axios from "axios";
 import { useAlert } from '../../context/AlertContext';
@@ -19,37 +19,56 @@ const Profile = () => {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    const fileInputRef = useRef(null);
-
-    const updateUserData = (updatedFields) => {
+    const fileInputRef = useRef(null);    const updateUserData = (updatedFields) => {
         if (!updatedFields || !user) return user;
         try {
-            // Function implementation needed
+            // Get current user data from localStorage
+            const userData = JSON.parse(localStorage.getItem("userData")) || user;
+            
+            // Merge updated fields with existing user data
+            const updatedUser = {
+                ...userData,
+                ...updatedFields
+            };
+            
+            // Update localStorage
+            localStorage.setItem("userData", JSON.stringify(updatedUser));
+            
+            // Update user context
+            setUser(updatedUser);
+            
+            return updatedUser;
         } catch (error) {
             console.error("Error updating user data", error);
-        }
+            return user;        }
     }
 
     useEffect(() => {
-        setFormData({
-            name: user.name,
-            email: user.email,
-            phoneNumber: user.phoneNumber
-        });
-    }, [user]);
-
-    useEffect(() => {
+        // Only update form data when user changes AND we're not in edit mode
+        const hasEditModeActive = Object.values(editMode).some(mode => mode);
+        
+        if (!hasEditModeActive) {
+            setFormData({
+                name: user.name,
+                email: user.email,
+                phoneNumber: user.phoneNumber
+            });
+        }
+    }, [user, editMode]);    useEffect(() => {
         if (socket) {
-            socket.on('user:updated', () => {
-                setIsSubmitting(false);
-                showAlert("User data updated successfully", "success");
+            socket.on('user:updated', (data) => {
+                // Only handle if it's for the current user and we're submitting
+                if (data && data.userId === user._id && isSubmitting) {
+                    setIsSubmitting(false);
+                    showAlert("User data updated successfully", "success");
+                }
             });
 
             return () => {
                 socket.off('user:updated');
             }
         }
-    }, [socket, showAlert]);
+    }, [socket, showAlert, user._id, isSubmitting]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -57,9 +76,7 @@ const Profile = () => {
             ...prev,
             [name]: value
         }));
-    };
-
-    const handleSubmit = (field) => {
+    };    const handleSubmit = useCallback((field) => {
         if (isSubmitting) return;
 
         if (formData[field] === user[field]) {
@@ -85,6 +102,7 @@ const Profile = () => {
                 updateData: updateDataUser
             });
 
+            // Update localStorage immediately but delay context update
             const userData = JSON.parse(localStorage.getItem("userData")) || user;
             const updatedUser = {
                 ...userData,
@@ -92,11 +110,13 @@ const Profile = () => {
             };
 
             localStorage.setItem("userData", JSON.stringify(updatedUser));
-            setUser(updatedUser);
+            
+            // Delay the context update to prevent immediate re-render
+            setTimeout(() => {
+                setUser(updatedUser);
+            }, 100);
         }
-    }
-
-    const toggleEditMode = (field) => {
+    }, [isSubmitting, formData, user, socket, setUser]);    const toggleEditMode = useCallback((field) => {
         if (!editMode[field]) {
             setFormData((prev) => ({
                 ...prev,
@@ -108,7 +128,7 @@ const Profile = () => {
             ...prev,
             [field]: !prev[field]
         }));
-    }
+    }, [editMode, user]);
 
     const handleAvatarClick = () => {
         fileInputRef.current.click();
@@ -146,8 +166,18 @@ const Profile = () => {
             );
 
             if (response.data.success) {
+                // Update user data in localStorage and context immediately
+                const updatedUser = updateUserData({ avatar: response.data.user.avatar });
+                
+                // Also emit socket event to update other clients if needed
+                if (socket) {
+                    socket.emit('user:update', {
+                        userId: user._id,
+                        updateData: { avatar: response.data.user.avatar }
+                    });
+                }
+                
                 showAlert("Avatar uploaded successfully", "success");
-                updateUserData({ avatar: response.data.user.avatar });
             } else {
                 showAlert("Error uploading avatar. Please try again.", "error");
             }
@@ -156,6 +186,10 @@ const Profile = () => {
             console.error("Error uploading avatar:", error);
         } finally {
             setIsUploading(false);
+            // Clear the file input to allow re-uploading the same file
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     }
 

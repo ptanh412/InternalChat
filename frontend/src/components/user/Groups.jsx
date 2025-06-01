@@ -96,23 +96,36 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
             creator: user._id,
             type: "group"
         });
-        showAlert('Creating group...', 'info');
+        // showAlert('Creating group successfully! Please check in list conversation', 'success');
+        setShowForm(false);
     }
 
     useEffect(() => {
         if (!socket) return;
 
         socket.on('group:created', (data) => {
+            // Robustly check if current user is in the new group's members (handle both {_id} and string)
+            const isCurrentUserMember = data.newConversation.members.some(m => {
+                if (typeof m === 'string') return m === user._id;
+                if (typeof m === 'object' && m !== null) return m._id === user._id || m._id?.toString() === user._id;
+                return false;
+            });
+            if (!isCurrentUserMember) return;
+
             const newGroup = {
                 _id: data._id,
                 conversationInfo: {
+                    _id: data._id,
                     type: 'group',
                     name: data.conversationInfo.name,
                     members: data.newConversation.members,
+                    avatarGroup: data.conversationInfo.avatarGroup || 'https://res.cloudinary.com/doruhcyf6/image/upload/v1733975023/Pngtree_group_avatar_icon_design_vector_3667776_xq0dzv.png',
                 },
                 unreadCount: data.newConversation.creator === user._id ? 0 : 1,
             }
             setGroups((prev) => {
+                // Prevent duplicate
+                if (prev.some(g => g._id === newGroup._id)) return prev;
                 return [...prev, newGroup]
             });
             setShowForm(false);
@@ -120,6 +133,7 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
             setSelectedMembers({});
             showAlert('Group created successfully', 'success');
 
+            // If current user is the creator, set pending group chat and switch
             if (data.newConversation.creator === user._id) {
                 if (setPendingGroupChat) {
                     setPendingGroupChat(data.newConversation);

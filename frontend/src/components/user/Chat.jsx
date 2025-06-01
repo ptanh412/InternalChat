@@ -30,14 +30,12 @@ import clientEncryptionService from "../../helper/encryptionService";
 
 
 const Chat = React.memo(() => {
-    const { showAlert } = useAlert();
-
-    const { currentComponent } = useChatContext();
+    const { showAlert } = useAlert(); const { currentComponent, setCurrentComponent } = useChatContext();
     //current chat
-    const [pendingGroupChat, setPendingGroupChat] = useState(null);
-    const [currentChat, setCurrentChat] = useState(null);
+    const [pendingGroupChat, setPendingGroupChat] = useState(null); const [currentChat, setCurrentChat] = useState(null);
     const [headerColor, setHeaderColor] = useState(null);
     const [showInfo, setShowInFo] = useState(false);
+    const [conversationToHighlight, setConversationToHighlight] = useState(null);
     const isMounted = useRef(true);
     //reaction
     const [activeReaction, setActiveReaction] = useState(null);
@@ -65,8 +63,6 @@ const Chat = React.memo(() => {
     const emojiPickerRef = useRef(null);
     const [pinnedMessages, setPinnedMessages] = useState([]);
     const [showPinnedMessages, setShowPinnedMessages] = useState(false);
-
-
     //search bar
     const [searchMode, setSearchMode] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -74,6 +70,14 @@ const Chat = React.memo(() => {
     const [currentResultIndex, setCurrentResultIndex] = useState(0);
     const [highlightedMessageId, setHighlightedMessageId] = useState(null);
     const searchInputRef = useRef(null);
+
+    // Pagination state
+    const [hasMoreMessages, setHasMoreMessages] = useState(true);
+    const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+    const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
+    const messagesContainerRef = useRef(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
 
     const { user, socket, getUserStatus } = useUser();
     const [contactUserStatus, setContactUserStatus] = useState('offline');
@@ -89,19 +93,24 @@ const Chat = React.memo(() => {
     const [imageViewerOpen, setImageViewerOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
     const [imageAttachments, setImageAttachments] = useState([]);
-    console.log('Curent Chat', currentChat);
-    useEffect(() => {
-        if (!socket || !currentChat || currentChat.type !== 'private') return;
+    console.log('Curent Chat', currentChat); useEffect(() => {
+        if (!socket || !currentChat || currentChat.type !== 'private') {
+            setContactUser(null);
+            setContactUserStatus('offline');
+            return;
+        }
 
-        // Tìm người dùng liên hệ ban đầu
+        // Find the other user in the conversation
         const otherUser = currentChat.members?.find(member => member._id !== user._id);
         if (otherUser) {
+            console.log('Setting contact user:', otherUser);
+            console.log('Contact user department:', otherUser.department);
             setContactUser(otherUser);
-            // Lấy trạng thái hiện tại từ hàm getUserStatus
+            // Get current status from getUserStatus function
             setContactUserStatus(getUserStatus(otherUser._id));
         }
 
-        // Lắng nghe sự kiện thay đổi trạng thái
+        // Listen for status change events
         const handleStatusChange = (data) => {
             if (otherUser && data.userId === otherUser._id) {
                 console.log(`Status update for contact ${otherUser.name}: ${data.status}`);
@@ -111,7 +120,7 @@ const Chat = React.memo(() => {
 
         socket.on('user:status', handleStatusChange);
 
-        // Thiết lập interval để cập nhật trạng thái định kỳ
+        // Set up interval to update status periodically
         const statusInterval = setInterval(() => {
             if (otherUser) {
                 const currentStatus = getUserStatus(otherUser._id);
@@ -164,17 +173,16 @@ const Chat = React.memo(() => {
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [handleClickOutside]);
-
-    const toggleOptionMenu = useCallback((messageId, e) => {
+    }, [handleClickOutside]); const toggleOptionMenu = useCallback((messageId, e) => {
         e.stopPropagation();
         setActiveMessageId(activeMessageId === messageId ? null : messageId);
-    }, [])
+    }, []);
 
     const toggleReaction = useCallback((messageId, e) => {
         e.stopPropagation();
         setActiveReaction(activeReaction === messageId ? null : messageId);
-    }, [])
+    }, []);
+
     const ComponentToRender = useMemo(() => {
         switch (currentComponent) {
             case 'Groups':
@@ -184,9 +192,9 @@ const Chat = React.memo(() => {
             case 'Profile':
                 return Profile;
             default:
-                return () => <ConversationList setCurrentChat={setCurrentChat} pendingGroupChat={pendingGroupChat} />;
+                return () => <ConversationList setCurrentChat={setCurrentChat} pendingGroupChat={pendingGroupChat} highlightConversationId={conversationToHighlight} />;
         }
-    }, [currentComponent, setCurrentChat, pendingGroupChat]);
+    }, [currentComponent, setCurrentChat, pendingGroupChat, conversationToHighlight]);
 
 
     const handleShowInfo = () => {
@@ -205,7 +213,7 @@ const Chat = React.memo(() => {
     useEffect(() => {
         if (socket) {
             const handleDisconnect = () => {
-                if (currentChat) {
+                if (currentChat && !currentChat.isTemporary) {
                     socket.emit('conversation:leave', {
                         conversationId: currentChat._id
                     });
@@ -218,23 +226,21 @@ const Chat = React.memo(() => {
                 socket.off('disconnect', handleDisconnect);
             };
         }
-    }, [socket, currentChat]);
-
-    useEffect(() => {
+    }, [socket, currentChat]); useEffect(() => {
         const handleBeforeUnload = () => {
             if (currentChat && currentChat.isTemporary) {
-                socket.emit('conversation:leave', {
-                    conversationId: currentChat._id,
-                })
+                // Don't emit conversation:leave for temporary conversations
+                // as they don't exist in the database
+                console.log('Skipping conversation:leave for temporary conversation:', currentChat._id);
             }
         }
 
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => {
             if (currentChat && currentChat.isTemporary) {
-                socket.emit('conversation:leave', {
-                    conversationId: currentChat._id,
-                })
+                // Don't emit conversation:leave for temporary conversations
+                // as they don't exist in the database
+                console.log('Cleanup: Skipping conversation:leave for temporary conversation:', currentChat._id);
             }
             window.removeEventListener('beforeunload', handleBeforeUnload);
         }
@@ -426,23 +432,65 @@ const Chat = React.memo(() => {
     const contactUserCall = useMemo(() => {
         if (!currentChat || currentChat.type !== 'private' || !user) return null;
         return currentChat.members?.find(member => member._id !== user._id) || null;
-    }, [currentChat, user]);
-
-    //socket event handler
+    }, [currentChat, user]);    //socket event handler
     useEffect(() => {
-        socket.on('chat:created', (data) => {
-            // console.log('Chat created:', data);
+        if (!socket) return;
+
+        socket.on('chat:loaded', (data) => {
+            console.log('Received chat:loaded data in Chat component:', data);
+
+            if (!data || !data.conversation) {
+                console.error('No conversation data received', data);
+                return;
+            }
+
+            // Clear previous conversation state
+            setMessages([]);
+            setTemporaryMessages([]);
+            setContactUser(null); const chatToSet = {
+                ...data.conversation,
+                isTemporary: data.isTemporary || data.conversation.isTemporary || false,
+                members: data.conversation.members || []
+            };
+
+            setCurrentChat(chatToSet);
+
+            // Only mark conversation as read and enter if it's not temporary
+            // Temporary conversations don't exist in the database yet
+            if (data.conversation._id && !data.isTemporary) {
+                socket.emit('conversation:mark-read', {
+                    conversationId: data.conversation._id
+                });
+
+                console.log(`Entering conversation: ${data.conversation._id}`);
+                socket.emit('conversation:enter', {
+                    conversationId: data.conversation._id,
+                });
+            } else if (data.isTemporary) {
+                console.log('Skipping database operations for temporary conversation:', data.conversation._id);
+            }
+        }); socket.on('chat:created', (data) => {
+            console.log('Chat created:', data);
+            const wasTemporary = currentChat && currentChat.isTemporary;
+
             setCurrentChat(prev => ({
                 ...data.newConversation,
                 isTemporary: false
-            }));
+            }));            // If the previous chat was temporary, switch to ConversationList and highlight the new conversation
+            if (wasTemporary) {
+                setConversationToHighlight(data.newConversation._id);
+                setCurrentComponent('ConversationList');
+            }
 
             if (temporaryMessages.length > 0) {
                 const updatedTempMessages = temporaryMessages.map(msg => ({
                     ...msg,
                     conversationId: data.newConversation._id
                 }));
-                setTemporaryMessages(updatedTempMessages);
+
+                // Move temporary messages to permanent messages
+                setMessages(prev => [...prev, ...updatedTempMessages]);
+                setTemporaryMessages([]);
             }
         });
 
@@ -606,6 +654,47 @@ const Chat = React.memo(() => {
 
                 setMessages(prev => {
                     const isMessageExists = prev.some(msg => msg._id === decryptedMessage._id);
+                    return isMessageExists
+                        ? prev
+                        : [...prev, decryptedMessage];
+                });
+            }
+        });
+        socket.on('message:sent', async (data) => {
+            console.log('Message sent:', data);
+            if (currentChat && currentChat._id === data.conversationId) {
+                // Decrypt the message content before adding to state
+                const decryptedMessage = {
+                    ...data.message,
+                    content: await clientEncryptionService.decryptMessage(data.message.content, data.conversationId)
+                };
+
+                // Decrypt attachment filenames if present
+                if (data.message.attachments && data.message.attachments.length > 0) {
+                    decryptedMessage.attachments = await Promise.all(
+                        data.message.attachments.map(async (attachment) => ({
+                            ...attachment,
+                            fileName: await clientEncryptionService.decryptMessage(attachment.fileName, data.conversationId)
+                        }))
+                    );
+                } setMessages(prev => {
+                    const isMessageExists = prev.some(msg => msg._id === decryptedMessage._id);
+
+                    // Check if this is the first message sent by current user in a conversation that was temporary
+                    if (!isMessageExists &&
+                        currentChat.isTemporary &&
+                        data.message.sender === user._id) {
+
+                        // Switch to ConversationList and highlight this conversation
+                        setConversationToHighlight(data.conversationId);
+                        setCurrentComponent('ConversationList');
+
+                        // // Clear the highlight after a short delay to ensure proper visual feedback
+                        // setTimeout(() => {
+                        //     setConversationToHighlight(null);
+                        // }, 3000);
+                    }
+
                     return isMessageExists
                         ? prev
                         : [...prev, decryptedMessage];
@@ -822,12 +911,12 @@ const Chat = React.memo(() => {
                         }
                         return prev;
                     });
-
                 }
             }
-        })
+        });
 
         return () => {
+            socket.off('chat:loaded');
             socket.off('group:created');
             socket.off('chat:created');
             socket.off('chat:update', handleChatUpdate);
@@ -856,9 +945,7 @@ const Chat = React.memo(() => {
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages]);
-
-    useEffect(() => {
+    }, [messages]); useEffect(() => {
         const fetchMessages = async () => {
             if (currentChat && !currentChat.isTemporary) {
                 setLoading(true);
@@ -870,19 +957,26 @@ const Chat = React.memo(() => {
                     });
 
                     if (response.data.success) {
+                        console.log('Fetched messages for conversation:', currentChat._id, response.data.data);
                         setMessages(response.data.data);
                     } else {
                         console.log('Error fetching messages:', response.data.message);
                         setMessages([]);
                     }
                 } catch (error) {
-                    console.log(error);
+                    console.log('Error fetching messages:', error);
                     setMessages([]);
                 } finally {
                     setLoading(false);
                 }
+            } else if (currentChat && currentChat.isTemporary) {
+                // For temporary conversations, start with empty messages
+                console.log('Temporary conversation, starting with empty messages');
+                setMessages([]);
+                setLoading(false);
             } else {
                 setMessages([]);
+                setLoading(false);
             }
         };
         fetchMessages();
@@ -1731,13 +1825,12 @@ const Chat = React.memo(() => {
                             >
                                 {contactUser?.name.charAt(0).toUpperCase()}
                             </div>
-                        )}
-                        <div className="ml-3">
+                        )}                        <div className="ml-3">
                             <h2 className="text-lg font-semibold">
                                 {contactUser?.name}
                             </h2>
                             <h3 className="text-xs text-gray-500 dark:text-gray-400">
-                                {contactUser.position} • {contactUser.department.name}
+                                {contactUser?.position} • {contactUser?.department?.name}
                             </h3>
                         </div>
                         {/* <div className={`w-2 h-2 ${contactUserStatus === 'online' ? 'bg-green-500' : 'bg-gray-500'} 
@@ -1806,16 +1899,46 @@ const Chat = React.memo(() => {
 
     const handleCloseImageViewer = () => {
         setImageViewerOpen(false);
-    };
-    const handleDownloadImage = (image) => {
+    }; const handleDownloadImage = (image) => {
         if (image && image._id) {
-            const downloadUrl = `http://localhost:5000/api/file/media/${image._id}`;
+            handleFileDownload(image._id, image.fileName || `image-${image._id}`);
+        }
+    };
+    const handleFileDownload = async (fileId, fileName) => {
+        try {
+            const downloadUrl = `http://localhost:5000/api/file/download/${fileId}`;
+
+            // Fetch the file with proper headers
+            const response = await fetch(downloadUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            // Get the blob data
+            const blob = await response.blob();
+
+            // Create a download link
+            const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = image.fileName || `image-${image._id}`;
+            link.href = url;
+            link.download = fileName;
+
+            // Trigger download
             document.body.appendChild(link);
             link.click();
+
+            // Cleanup
             document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading file:', error);
+            showAlert('Failed to download file', 'error');
         }
     };
     const handleCommonGroupClick = (group) => {
@@ -2457,8 +2580,7 @@ const Chat = React.memo(() => {
                         value={inputMessage}
                         onChange={(e) => {
                             setInputMessage(e.target.value)
-
-                            if (e.target.value && currentChat?._id) {
+                            if (e.target.value && currentChat?._id && !currentChat?.isTemporary) {
                                 if (!typingTimout.current) {
                                     socket.emit('typing:start', {
                                         conversationId: currentChat._id,
@@ -2468,9 +2590,8 @@ const Chat = React.memo(() => {
                                     typingTimout.current = null
                                 }, 1000)
                             }
-                        }}
-                        onBlur={() => {
-                            if (currentChat?._id) {
+                        }} onBlur={() => {
+                            if (currentChat?._id && !currentChat?.isTemporary) {
                                 socket.emit('typing:stop', {
                                     conversationId: currentChat._id,
                                 })
@@ -2578,17 +2699,14 @@ const Chat = React.memo(() => {
                     {fileType === 'spreadsheet' && <FaFileExcel className="text-green-500 text-2xl" />}
                     {fileType === 'archive' && <FaFileArchive className="text-yellow-500 text-2xl" />}
                     {!['pdf', 'document', 'presentation', 'spreadsheet', 'archive'].includes(fileType) && <FaFile className="text-gray-500 text-2xl" />}
-                </div>
-                <div>
-                    <a
-                        href={serverMediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="dark:text-neutral-300 hover:underline truncate max-w-[180px]"
-                        download={original}
+                </div>                <div>
+                    <button
+                        onClick={() => handleFileDownload(_id, fileName)}
+                        className="dark:text-neutral-300 hover:underline truncate max-w-[180px] text-left bg-transparent border-none cursor-pointer p-0"
+                        title={`Download ${fileName}`}
                     >
                         {truncateFileName(fileName)}
-                    </a>
+                    </button>
                     <span className="ml-3 text-xs text-neutral-400">{formatFileSize(fileSize)}</span>
                 </div>
             </div>
@@ -3002,67 +3120,69 @@ const Chat = React.memo(() => {
                                                                                             </div>
                                                                                         </div>
                                                                                     )}
-                                                                                    <div className={`absolute top-3 ${msg.sender._id === user._id ? '-left-20' : '-right-20'} flex items-center justify-center space-x-2 text-xs text-gray-400 
+                                                                                    {!msg.isRecalled && (
+                                                                                        <div className={`absolute top-3 ${msg.sender._id === user._id ? '-left-20' : '-right-20'} flex items-center justify-center space-x-2 text-xs text-gray-400 
                                                                                     ${activeMessageId === msg._id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} 
                                                                                     transition-opacity duration-200`}
-                                                                                    >
-                                                                                        <button
-                                                                                            onClick={() => handleReply(msg)}
                                                                                         >
-                                                                                            <FaReply className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
-                                                                                        </button>
-                                                                                        <button onClick={(e) => toggleReaction(msg._id, e)}>
-                                                                                            <MdOutlineEmojiEmotions className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
-                                                                                        </button>
-                                                                                        <div className="relative mt-0.5" >
-                                                                                            <button onClick={(e) => toggleOptionMenu(msg._id, e)}>
-                                                                                                <HiOutlineDotsVertical className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                            <button
+                                                                                                onClick={() => handleReply(msg)}
+                                                                                            >
+                                                                                                <FaReply className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
                                                                                             </button>
-                                                                                            {activeMessageId === msg._id && (
-                                                                                                <div className="absolute -right-[90px] -top-3 bg-white dark:text-white dark:bg-neutral-700 rounded-lg shadow-md z-10 flex flex-col items-start w-20 space-y-1 px-1 py-1 option-menu">
-                                                                                                    <button
-                                                                                                        className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
-                                                                                                        onClick={() => handlePinMessage(msg._id)}
-                                                                                                    >
-                                                                                                        Pin
-                                                                                                    </button>
-                                                                                                    <button className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1">Forward</button>
-                                                                                                    <button
-                                                                                                        className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
-                                                                                                        onClick={() => {
-                                                                                                            setShowRecall(!showRecall);
-                                                                                                            setActiveMessageId(null);
-                                                                                                        }}>
-                                                                                                        Recall
-                                                                                                    </button>
-                                                                                                </div>
-                                                                                            )}
-
-                                                                                            {showRecall && (
-                                                                                                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                                                                                    <div className={`p-8 rounded-lg w-[400px] bg-neutral-900 space-y-5`}>
-                                                                                                        <div className="flex justify-between items-center">
-                                                                                                            <h2 className="text-2xl font-bold dark:text-white">Recall a message</h2>
-                                                                                                            <MdClose className="text-lg cursor-pointer" onClick={() => setShowRecall(!showRecall)} />
-                                                                                                        </div>
-                                                                                                        <p className="text-sm text-gray-400 mt-9">Are you sure you want to recall this message?</p>
+                                                                                            <button onClick={(e) => toggleReaction(msg._id, e)}>
+                                                                                                <MdOutlineEmojiEmotions className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                            </button>
+                                                                                            <div className="relative mt-0.5" >
+                                                                                                <button onClick={(e) => toggleOptionMenu(msg._id, e)}>
+                                                                                                    <HiOutlineDotsVertical className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                                </button>
+                                                                                                {activeMessageId === msg._id && (
+                                                                                                    <div className={`absolute ${msg.sender._id === user._id ? 'right-5' : '-right-[90px]'} -top-3 bg-white dark:text-white dark:bg-neutral-700 rounded-lg shadow-md z-10 flex flex-col items-start w-20 space-y-1 px-1 py-1 option-menu`}>
                                                                                                         <button
-                                                                                                            className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
-                                                                                                            onClick={() => handleRecall(msg._id, 'everyone', msg.conversationId)}
+                                                                                                            className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
+                                                                                                            onClick={() => handlePinMessage(msg._id)}
                                                                                                         >
-                                                                                                            For everyone
+                                                                                                            Pin
                                                                                                         </button>
+                                                                                                        <button className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1">Forward</button>
                                                                                                         <button
-                                                                                                            className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
-                                                                                                            onClick={() => handleRecall(msg._id, 'self', msg.conversationId)}
-                                                                                                        >
-                                                                                                            For me
+                                                                                                            className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
+                                                                                                            onClick={() => {
+                                                                                                                setShowRecall(!showRecall);
+                                                                                                                setActiveMessageId(null);
+                                                                                                            }}>
+                                                                                                            Recall
                                                                                                         </button>
                                                                                                     </div>
-                                                                                                </div>
-                                                                                            )}
+                                                                                                )}
+
+                                                                                                {showRecall && (
+                                                                                                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                                                                                        <div className={`p-8 rounded-lg w-[400px] bg-neutral-900 space-y-5`}>
+                                                                                                            <div className="flex justify-between items-center">
+                                                                                                                <h2 className="text-2xl font-bold dark:text-white">Recall a message</h2>
+                                                                                                                <MdClose className="text-lg cursor-pointer" onClick={() => setShowRecall(!showRecall)} />
+                                                                                                            </div>
+                                                                                                            <p className="text-sm text-gray-400 mt-9">Are you sure you want to recall this message?</p>
+                                                                                                            <button
+                                                                                                                className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
+                                                                                                                onClick={() => handleRecall(msg._id, 'everyone', msg.conversationId)}
+                                                                                                            >
+                                                                                                                For everyone
+                                                                                                            </button>
+                                                                                                            <button
+                                                                                                                className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
+                                                                                                                onClick={() => handleRecall(msg._id, 'self', msg.conversationId)}
+                                                                                                            >
+                                                                                                                For me
+                                                                                                            </button>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
                                                                                         </div>
-                                                                                    </div>
+                                                                                    )}
                                                                                     {activeReaction === msg._id && (
                                                                                         <div className={`absolute flex ${msg.sender._id === user._id ? '-right-5' : 'left-5'} -bottom-5 space-x-1 text-xs text-gray-400 bg-white dark:bg-neutral-500 opacity-90 p-1 rounded-full shadow-md z-10 reaction-menu`}>
                                                                                             {REACTIONS.map(({ emoji, name }) => (

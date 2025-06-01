@@ -4,6 +4,7 @@ import axios from "axios";
 import { useAlert } from "./AlertContext";
 import { useNavigate } from "react-router-dom";
 import { useDialog } from "./DialogContext ";
+import { CleanupHandler } from "../utils/cleanupHandler.js";
 
 const UserContext = createContext();
 
@@ -12,6 +13,7 @@ export const UserProvider = ({ children }) => {
     const [socket, setSocket] = useState(null);
     const [loading, setLoading] = useState(true);
     const [onlineUsers, setOnlineUsers] = useState({});
+    const [cleanupHandler, setCleanupHandler] = useState(null);
     const { showAlert } = useAlert();
     const navigate = useNavigate();
 
@@ -20,9 +22,7 @@ export const UserProvider = ({ children }) => {
         dialogContext = useDialog();
     } catch (error) {
         console.error("Dialog context not found", error);
-    }
-
-    useEffect(() => {
+    }    useEffect(() => {
         const storedUser = localStorage.getItem("userData");
         const token = localStorage.getItem("token");
 
@@ -43,9 +43,32 @@ export const UserProvider = ({ children }) => {
         };
 
         setLoading(false);
+
+        // Cleanup function
+        return () => {
+            if (cleanupHandler) {
+                cleanupHandler.destroy();
+            }
+        };
     }, []);
 
-    const connectSocket = (token) => {
+    // Separate effect to handle cleanup handler updates
+    useEffect(() => {
+        if (socket && user) {
+            // Clean up previous handler
+            if (cleanupHandler) {
+                cleanupHandler.destroy();
+            }
+            
+            // Create new cleanup handler
+            const handler = new CleanupHandler(socket, user);
+            setCleanupHandler(handler);
+            
+            return () => {
+                handler.destroy();
+            };
+        }
+    }, [socket, user]);const connectSocket = (token) => {
 
         if (socket) {
             socket.disconnect();
@@ -55,11 +78,47 @@ export const UserProvider = ({ children }) => {
                 token
             },
             autoConnect: false,
+            // Enhanced connection options for better disconnect detection
+            timeout: 20000,
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5,
+            maxReconnectionAttempts: 5
         });
 
         newSocket.on('connect', () => {
             // console.log("Socket connected");
             newSocket.emit('get:user-status');
+        });
+
+        newSocket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+            
+            // If disconnect is due to server shutdown or transport close
+            if (reason === 'transport close' || reason === 'io server disconnect') {
+                // Update user status locally to offline
+                if (user) {
+                    updateUserData({ status: 'offline' });
+                }
+            }
+        });
+
+        newSocket.on('connect_error', (err) => {
+            console.error('Socket connection error', err.message);
+            
+            // If connection fails, set user status to offline
+            if (user) {
+                updateUserData({ status: 'offline' });
+            }
+        });
+
+        newSocket.on('reconnect_failed', () => {
+            console.log('Socket reconnection failed');
+            
+            // Set user status to offline when reconnection fails
+            if (user) {
+                updateUserData({ status: 'offline' });
+            }
         });
 
         newSocket.on('user:status', (data) => {
@@ -118,25 +177,21 @@ export const UserProvider = ({ children }) => {
                     }
                 }
             }
-        });
-
-        newSocket.on('user:updated', (data) => {
+        });        newSocket.on('user:updated', (data) => {
             console.log('user:updated event received', data);
             const userId = data.userId;
             const updatedFields = data.updateFields;
             if (userId === user?._id) {
                 updateUserData(updatedFields);
             }
-        })
+        });
 
         newSocket.on('user:status-success', (data) => {
             if (data.user && data.user._id === user?._id) {
                 updateUserData(data.user);
             }
-        })
-        newSocket.on('connect_error', (err) => {
-            console.error('Socket connection error', err.message);
         });
+        
         newSocket.connect();
         setSocket(newSocket);
         return newSocket;
@@ -191,16 +246,28 @@ export const UserProvider = ({ children }) => {
         } catch (error) {
             console.error("Login error", error);
             return {
-                success: false,
-                message: error.response.data.message || "Error logging in"
+                success: false,                message: error.response.data.message || "Error logging in"
             }
         }
-    }
+    };    const logout = () => {
+        // Clean up the cleanup handler
+        if (cleanupHandler) {
+            cleanupHandler.destroy();
+            setCleanupHandler(null);
+        }
 
-    const logout = () => {
-        if (socket) {
-            socket.emit('user:logout');
-            socket.disconnect();
+        if (socket && socket.connected) {
+            try {
+                // Send logout event to server
+                socket.emit('user:logout');
+                // Give the server a moment to process the logout
+                setTimeout(() => {
+                    socket.disconnect();
+                }, 100);
+            } catch (error) {
+                console.error('Error during socket logout:', error);
+                socket.disconnect();
+            }
         }
 
         localStorage.removeItem("token");
@@ -208,6 +275,7 @@ export const UserProvider = ({ children }) => {
 
         setUser(null);
         setSocket(null);
+        setOnlineUsers({});
     };
 
     const getUserStatus = (userId) => {

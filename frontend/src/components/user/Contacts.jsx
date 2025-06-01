@@ -1,13 +1,14 @@
 import { memo, useEffect, useMemo, useState, useRef } from "react";
 import { useUser } from "../../context/UserContext";
 
-const Contacts = memo(({setCurrentChat}) => {
+const Contacts = memo(({ setCurrentChat, currentChat }) => {
     const [users, setUsers] = useState([]);
     const [searchTerm, setSearchTerm] = useState("");
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const dropdownRef = useRef(null);
     const inputRef = useRef(null);
-    const {user, socket} = useUser();
+    const { user, socket } = useUser();
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -18,9 +19,9 @@ const Contacts = memo(({setCurrentChat}) => {
                         Authorization: `Bearer ${localStorage.getItem('token')}`
                     }
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.success) {
                     const filteredUsers = data.data.users.filter(
                         u => u._id !== user._id
@@ -35,7 +36,7 @@ const Contacts = memo(({setCurrentChat}) => {
 
         // Xử lý khi click ngoài dropdown để đóng
         const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target) && 
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target) &&
                 inputRef.current && !inputRef.current.contains(event.target)) {
                 setIsDropdownOpen(false);
             }
@@ -58,27 +59,54 @@ const Contacts = memo(({setCurrentChat}) => {
 
     const getRandomColor = useMemo(() => {
         const colors = [
-            'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 
+            'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500',
             'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500'
         ];
         return () => colors[Math.floor(Math.random() * colors.length)];
-    }, []);
+    }, []);    const handleContactClick = (contactUser) => {
+        console.log('Contacts: Clicked on contact user:', contactUser);
 
-    const handleContactClick = (contactUser) => {
-        console.log('Contact user: ', contactUser);
-        socket.emit('chat:init', {contactId: contactUser._id, conversationType: 'private'});
+        // Prevent multiple clicks
+        if (isLoading) {
+            console.log('Contacts: Already loading, ignoring click');
+            return;
+        }
+
+        setIsLoading(true);
+
+        // Leave current conversation if exists before starting new one
+        if (currentChat && currentChat._id && !currentChat.isTemporary) {
+            console.log('Contacts: Leaving current conversation before starting new one:', currentChat._id);
+            socket.emit('conversation:leave', { conversationId: currentChat._id });
+        }
+
+        // Clear current chat immediately to show loading state
+        setCurrentChat(null);
+
+        // Emit chat:init to create/load conversation with the selected contact
+        console.log('Contacts: Emitting chat:init for contact:', contactUser._id);
+        socket.emit('chat:init', {
+            contactId: contactUser._id,
+            conversationType: 'private'
+        });
+
         setIsDropdownOpen(false);
         setSearchTerm("");
+
+        // Reset loading state after a timeout as fallback
+        setTimeout(() => {
+            setIsLoading(false);
+        }, 5000);
     };
 
     const filteredUsers = useMemo(() => {
         if (!searchTerm.trim()) return [];
-        
-        return users.filter(member => 
+
+        return users.filter(member =>
             member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (member.position && member.position.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (member.department && member.department.name && 
-             member.department.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            (member.department && member.department.name &&
+                member.department.name.toLowerCase().includes(searchTerm.toLowerCase()))
         );
     }, [users, searchTerm]);
 
@@ -104,7 +132,7 @@ const Contacts = memo(({setCurrentChat}) => {
 
     return (
         <div className="p-6 w-full bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-slate-900 dark:text-white shadow-2xl border-l border-slate-200/50 dark:border-slate-700/50 backdrop-blur-sm">
-              <div className="relative mb-8">
+            <div className="relative mb-8">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl blur-xl"></div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
                     <div className="relative">
@@ -114,7 +142,7 @@ const Contacts = memo(({setCurrentChat}) => {
                     Contacts
                 </h1>
             </div>
-            
+
             {/* Search Input with Dropdown */}
             <div className="mt-5 relative">
                 <div className="relative">
@@ -133,26 +161,26 @@ const Contacts = memo(({setCurrentChat}) => {
                         onFocus={handleSearchFocus}
                     />
                 </div>
-                
+
                 {/* Dropdown Results */}
                 {isDropdownOpen && (
-                    <div 
+                    <div
                         ref={dropdownRef}
                         className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 scrollbar-none"
                     >
                         {filteredUsers.length > 0 ? (
                             filteredUsers.map((member) => (
-                                <div 
-                                    key={member._id} 
+                                <div
+                                    key={member._id}
                                     className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
                                     onClick={() => handleContactClick(member)}
                                 >
                                     <div className="flex items-center space-x-3">
                                         {member.avatar ? (
-                                            <img 
-                                                src={member.avatar} 
-                                                className="w-10 h-10 rounded-full object-cover" 
-                                                alt={member.name} 
+                                            <img
+                                                src={member.avatar}
+                                                className="w-10 h-10 rounded-full object-cover"
+                                                alt={member.name}
                                             />
                                         ) : (
                                             <div className={`w-10 h-10 flex items-center justify-center rounded-full text-white font-medium ${getRandomColor()}`}>
@@ -176,7 +204,7 @@ const Contacts = memo(({setCurrentChat}) => {
                     </div>
                 )}
             </div>
-            
+
             {/* Contact List */}
             <div className="mt-8">
                 {Object.keys(sortedMembers).sort().map((letter) => (
@@ -184,16 +212,16 @@ const Contacts = memo(({setCurrentChat}) => {
                         <h3 className="font-semibold text-lg text-purple-500 mb-2 px-2">{letter}</h3>
                         <div className="space-y-3">
                             {sortedMembers[letter].map((member) => (
-                                <div 
-                                    key={member._id} 
+                                <div
+                                    key={member._id}
                                     className="flex items-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-200"
                                     onClick={() => handleContactClick(member)}
                                 >
                                     {member.avatar ? (
-                                        <img 
-                                            src={member.avatar} 
-                                            className="w-10 h-10 rounded-full object-cover" 
-                                            alt={member.name} 
+                                        <img
+                                            src={member.avatar}
+                                            className="w-10 h-10 rounded-full object-cover"
+                                            alt={member.name}
                                         />
                                     ) : (
                                         <div className={`w-10 h-10 flex items-center justify-center rounded-full text-white font-medium ${getRandomColor()}`}>
