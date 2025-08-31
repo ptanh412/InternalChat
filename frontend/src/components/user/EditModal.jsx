@@ -10,17 +10,15 @@ const EditGroupModal = ({
     initialAvatar,
     isUploading,
     uploadFiles
-}) => {
-    const { socket, user } = useUser();
+}) => {    const { socket, user } = useUser();
     const [groupName, setGroupName] = useState(initialName || '');
     const [groupAvatar, setGroupAvatar] = useState('');
     const [avatarPreview, setAvatarPreview] = useState(initialAvatar || '');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleNameChange = useCallback((e) => {
         setGroupName(e.target.value);
-    }, []);
-
-    const handleAvatarChange = (e) => {
+    }, []);    const handleAvatarChange = (e) => {
         const file = e.target.files[0];
         if (file) {
             setGroupAvatar(file);
@@ -30,10 +28,9 @@ const EditGroupModal = ({
             };
             reader.readAsDataURL(file);
         }
-    }
-
-    const submitGroupInfo = async () => {
+    };    const submitGroupInfo = async () => {
         try {
+            setIsSubmitting(true);
             let updateData = {};
             if (groupName !== currentChat.name) {
                 updateData.name = groupName;
@@ -45,6 +42,7 @@ const EditGroupModal = ({
                     updateData.avatarGroup = uploadedUrl[0].fileUrl;
                 }
             };
+            
             if (Object.keys(updateData).length > 0) {
                 socket.emit('group:update-info', {
                     conversationId: currentChat._id,
@@ -52,10 +50,14 @@ const EditGroupModal = ({
                     updateData: updateData,
                     conversationType: currentChat.type
                 });
-                onClose();
             }
+            
+            // Đóng modal dù có thay đổi hay không
+            onClose();
         } catch (err) {
             console.error('Error submitting group info:', err);
+        } finally {
+            setIsSubmitting(false);
         }
     }
 
@@ -141,13 +143,12 @@ const EditGroupModal = ({
                             className="px-4 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-300 dark:border-slate-500 hover:bg-gray-50 dark:hover:bg-slate-500 transition-colors shadow-sm"
                         >
                             Cancel
-                        </button>
-                        <button
+                        </button>                        <button
                             onClick={submitGroupInfo}
-                            disabled={isUploading}
+                            disabled={isUploading || isSubmitting}
                             className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                            {isUploading ? (
+                            {(isUploading || isSubmitting) ? (
                                 <span className="flex items-center">
                                     <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

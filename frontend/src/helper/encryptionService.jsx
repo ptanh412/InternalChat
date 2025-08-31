@@ -74,22 +74,15 @@ class ClientEncryptionService {
         try {
             if (!encryptedContent) return encryptedContent;
             
-            console.log('Decryption input:', {
-                encryptedContent: encryptedContent,
-                conversationId: conversationId,
-                contentType: typeof encryptedContent,
-                contentLength: encryptedContent.length
-            });
-            
             // Kiểm tra xem có phải là hex string không
             if (!/^[0-9a-fA-F]+$/.test(encryptedContent)) {
-                console.log('Content is not hex encoded, returning as-is');
+                // console.log('Content is not hex encoded, returning as-is');
                 return encryptedContent; // Không phải hex, trả về nguyên bản
             }
             
             // Check if hex string has valid length (should be even)
             if (encryptedContent.length % 2 !== 0) {
-                console.log('Invalid hex string length, returning as-is');
+                // console.log('Invalid hex string length, returning as-is');
                 return encryptedContent;
             }
             
@@ -100,7 +93,7 @@ class ClientEncryptionService {
                 encryptedContent.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
             );
             
-            console.log('Encrypted data length:', encryptedData.length);
+            // console.log('Encrypted data length:', encryptedData.length);
             
             if (encryptedData.length < 12) {
                 console.log('Encrypted data too short, returning as-is');
@@ -110,7 +103,7 @@ class ClientEncryptionService {
             const iv = encryptedData.slice(0, 12); // First 12 bytes are IV
             const ciphertext = encryptedData.slice(12); // Rest is ciphertext
             
-            console.log('IV length:', iv.length, 'Ciphertext length:', ciphertext.length);
+            // console.log('IV length:', iv.length, 'Ciphertext length:', ciphertext.length);
             
             const decrypted = await window.crypto.subtle.decrypt(
                 {

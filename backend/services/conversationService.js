@@ -124,7 +124,7 @@ const createConvDepartment = async (departmentData, creator) => {
 };
 
 const updateConvDepartment = async (conversationId, updateData, updatedBy, conversationType) => {
-	console.log('memberId:', updatedBy._id);
+	console.log('Update Data:', updateData);
 	try {
 		const conversation = await Conversations.findById(conversationId).lean().exec();
 		if (!conversation) throw new Error('Conversation not found');

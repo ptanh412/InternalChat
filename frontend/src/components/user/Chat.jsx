@@ -24,7 +24,7 @@ import { RiUnpinLine } from "react-icons/ri";
 import ImageViewerModal from "./ImageViewerModal ";
 import useWebRTC from "../../../hooks/useWebRTC";
 import { FiPhone, FiVideo } from "react-icons/fi";
-import IncomingCallModel from "./IncomingCallModel";
+import IncomingCallModal from "./IncomingCallModel";
 import IncallUI from "./IncallUI";
 import clientEncryptionService from "../../helper/encryptionService";
 
@@ -71,14 +71,6 @@ const Chat = React.memo(() => {
     const [highlightedMessageId, setHighlightedMessageId] = useState(null);
     const searchInputRef = useRef(null);
 
-    // Pagination state
-    const [hasMoreMessages, setHasMoreMessages] = useState(true);
-    const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
-    const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
-    const messagesContainerRef = useRef(null);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [isInitialLoad, setIsInitialLoad] = useState(true);
-
     const { user, socket, getUserStatus } = useUser();
     const [contactUserStatus, setContactUserStatus] = useState('offline');
     const [contactUser, setContactUser] = useState(null);
@@ -93,7 +85,9 @@ const Chat = React.memo(() => {
     const [imageViewerOpen, setImageViewerOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
     const [imageAttachments, setImageAttachments] = useState([]);
-    console.log('Curent Chat', currentChat); useEffect(() => {
+
+
+    useEffect(() => {
         if (!socket || !currentChat || currentChat.type !== 'private') {
             setContactUser(null);
             setContactUserStatus('offline');
@@ -103,8 +97,8 @@ const Chat = React.memo(() => {
         // Find the other user in the conversation
         const otherUser = currentChat.members?.find(member => member._id !== user._id);
         if (otherUser) {
-            console.log('Setting contact user:', otherUser);
-            console.log('Contact user department:', otherUser.department);
+            // console.log('Setting contact user:', otherUser);
+            // console.log('Contact user department:', otherUser.department);
             setContactUser(otherUser);
             // Get current status from getUserStatus function
             setContactUserStatus(getUserStatus(otherUser._id));
@@ -148,6 +142,7 @@ const Chat = React.memo(() => {
         }
         return color;
     }, []);
+
     useEffect(() => {
         if (currentChat && (currentChat.type === 'group' || currentChat.type === 'department')) {
             // Generate the color only when the currentChat changes to a group/department
@@ -173,7 +168,9 @@ const Chat = React.memo(() => {
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [handleClickOutside]); const toggleOptionMenu = useCallback((messageId, e) => {
+    }, [handleClickOutside]);
+
+    const toggleOptionMenu = useCallback((messageId, e) => {
         e.stopPropagation();
         setActiveMessageId(activeMessageId === messageId ? null : messageId);
     }, []);
@@ -226,7 +223,9 @@ const Chat = React.memo(() => {
                 socket.off('disconnect', handleDisconnect);
             };
         }
-    }, [socket, currentChat]); useEffect(() => {
+    }, [socket, currentChat]);
+
+    useEffect(() => {
         const handleBeforeUnload = () => {
             if (currentChat && currentChat.isTemporary) {
                 // Don't emit conversation:leave for temporary conversations
@@ -246,9 +245,7 @@ const Chat = React.memo(() => {
         }
     }, [currentChat, socket])
 
-    //handler socket for call
-
-    //call function
+    //handler socket for call      //call function
     const [callState, setCallState] = useState('idle'); // 'idle', 'calling', 'in-call', 'ended'
     const [currenntCallInfo, setCurrentCallInfo] = useState(null);
     const {
@@ -257,67 +254,238 @@ const Chat = React.memo(() => {
         startCall,
         answerCall,
         endCall: endWebRTCCall,
+        setCurrentCallRef,
         toggleAudio,
         toggleVideo,
-        isPeerConnected,
-    } = useWebRTC(socket, user._id);
-    useEffect(() => {
+
+    } = useWebRTC(socket, user._id); useEffect(() => {
         if (!socket) return;
 
-        socket.on('call:incoming', async (data) => {
-            console.log('Incoming call:', data);
+        console.log('🔧 Setting up call event listeners...');
+
+        const handleIncomingCall = async (data) => {
+            console.log('📞 Incoming call event received:', data);
 
             if (callState === 'idle') {
                 setCallState('receiving');
                 setCurrentCallInfo(data);
+
+                if (setCurrentCallRef) {
+                    setCurrentCallRef(data.callId);
+                    console.log('🔗 Successfully called setCurrentCallRef');
+                } else {
+                    console.error('🔗 setCurrentCallRef function not available!');
+                }
             } else {
-                console.log('Call already in progress or ended. Ignoring incoming call.');
-                showAlert('error', 'Call already in progress or ended. Ignoring incoming call.');
+                console.log('📞 Call already in progress or ended. Ignoring incoming call.');
+                showAlert('Call already in progress or ended. Ignoring incoming call.', 'error');
                 socket.emit('call:decline', {
                     callId: data.callId,
                 });
             }
-        });
+        };
 
-        socket.on('call:ended', (data) => {
+        const handleCallMissed = (data) => {
+            console.log('Missed call:', data);
+            // Use callback to get current state
+            setCallState(currentState => {
+                setCurrentCallInfo(currentInfo => {
+                    if (currentInfo && data.callId === currentInfo.callId) {
+                        endWebRTCCall();
+                        showAlert('Call was missed', 'info');
+                        return null;
+                    } else {
+                        console.log(`Missed call ${data.callId} is not the current call`);
+                        return currentInfo;
+                    }
+                });
+                return currentState === 'receiving' ? 'idle' : currentState;
+            });
+        }; const handleCallError = (data) => {
+            console.error('Call error:', data);
+            let errorMessage = 'Unknown error';
+
+            if (data.error === 'User is not online') {
+                errorMessage = 'User is currently offline';
+            } else if (data.error === 'Recipient not connected') {
+                errorMessage = 'User is not available';
+            } else if (data.error) {
+                errorMessage = data.error;
+            }
+
+            showAlert(`Call failed: ${errorMessage}`, 'error');
+            setCallState('idle');
+            setCurrentCallInfo(null);
+            endWebRTCCall();
+        }; const handleCallEnded = (data) => {
             console.log('Call ended:', data);
-            if (currenntCallInfo && data.callId === currenntCallInfo.conversationId) {
-                setCallState('idle');
-                setCurrentCallInfo(null);
-                endWebRTCCall();
+            // Use callback to get current state
+            setCurrentCallInfo(currentInfo => {
+                if (currentInfo && data.callId === currentInfo.callId) {
+                    setCallState(currentState => {
+                        endWebRTCCall();
 
-                showAlert('info', 'Call finished');
-                if (callState === 'calling') {
-                    showAlert('info', 'Call finished');
+                        // Show appropriate message based on call status and who ended it
+                        if (data.status === 'declined') {
+                            if (data.declinedBy === user._id) {
+                                showAlert('Call declined', 'info');
+                            } else {
+                                showAlert('Call was declined', 'info');
+                            }
+                        } else if (data.endedBy && data.endedBy !== user._id) {
+                            showAlert('Call ended by other party', 'info');
+                        } else {
+                            showAlert('Call finished', 'info');
+                        }
+
+                        return 'idle';
+                    });
+                    return null;
+                } else {
+                    console.log(`Ended call ${data.callId} is not the current call`);
+                    return currentInfo;
                 }
+            });
+        }; const handleCallAnswered = (data) => {
+            console.log('Call answered:', data);
+            // Use callback to get current state
+            setCallState(currentState => {
+                if (currentState === 'calling') {
+                    setCurrentCallInfo(currentInfo => {
+                        if (currentInfo && data.callId === currentInfo.callId) {
+                            console.log('✅ Call answered successfully, entering inCall state');
+
+                            // Update call info with recipient details if provided
+                            if (data.recipient) {
+                                console.log('📋 Updating call info with recipient details:', data.recipient);
+                                return {
+                                    ...currentInfo,
+                                    otherParticipant: data.recipient
+                                };
+                            }
+
+                            return currentInfo;
+                        }
+                        return currentInfo;
+                    });
+                    return 'inCall';
+                }
+                return currentState;
+            });
+        }
+
+        const handleCallAnswerConfirmed = (data) => {
+            console.log('✅ Call answer confirmed:', data);
+            // Use callback to get current state
+            setCallState(currentState => {
+                if (currentState === 'receiving') {
+                    return 'inCall';
+                }
+                return currentState;
+            });
+        }; const handleCallDeclined = (data) => {
+            console.log('Call declined:', data);
+            // This event is mainly for logging and specific decline reason handling
+            // The actual cleanup will be handled by call:ended event
+
+            if (data.reason === 'no_offer_received') {
+                console.log('Call failed due to WebRTC setup error');
             } else {
-                console.log(`Ended call ${data.callId} is not the current call`);
+                console.log('Call was declined by the other party');
             }
-        });
+        }; const handleCallInitiated = async (data) => {
+            console.log('🎯 ===== CALL INITIATED EVENT RECEIVED =====');
+            console.log('🎯 Call initiated data:', data);
+            console.log('🎯 Current call state:', callState);
+            console.log('🎯 Current call info exists:', !!currenntCallInfo);
 
-        socket.on('call:answer-accepted', (data) => {
-            console.log('Call answer accepted:', data);
+            // Use callback to get current state
+            setCallState(currentState => {
+                console.log('🎯 Processing call:initiated, current state:', currentState);
+                if (currentState === 'calling') {
+                    setCurrentCallInfo(currentInfo => {
 
-            if (callState === 'calling' && currenntCallInfo && data.callId === currenntCallInfo.conversationId) {
-                console.log(`User ${data.answererId} accepted the call ${data.callId}. Entering inCall state.`);
-                setCallState('inCall');
-            }
-        });
+                        if (currentInfo) {
+                            console.log('🎯 Updating call info with real callId:', data.callId);
+                            // Update call info with the real callId
+                            const updatedCallInfo = {
+                                ...currentInfo,
+                                callId: data.callId
+                            };
 
-        socket.on('signal', (data) => {
-            console.log('Signal received in Chat component, forwarded to WebRTC:', data);
-        });
+                            console.log('🎯 About to call startCall...');
+                            startCall(data.callId, currentInfo.type, currentInfo.recipientId)
+                                .then(callStartedSuccessfully => {
+                                    console.log('🎯 StartCall result:', callStartedSuccessfully);
+
+                                    if (!callStartedSuccessfully) {
+                                        console.error('🎯 Failed to start WebRTC call');
+                                        setCallState('idle');
+                                        setCurrentCallInfo(null);
+                                        socket.emit('call:end', {
+                                            callId: data.callId,
+                                            status: 'failed'
+                                        });
+                                    } else {
+                                        console.log('🎯 WebRTC call started successfully');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('🎯 Error starting WebRTC call:', error);
+                                    setCallState('idle');
+                                    setCurrentCallInfo(null);
+                                    socket.emit('call:end', {
+                                        callId: data.callId,
+                                        status: 'failed'
+                                    });
+                                });
+
+                            return updatedCallInfo;
+                        } else {
+                            console.log('🎯 Ignoring call:initiated - no call info');
+                            return currentInfo;
+                        }
+                    });
+                } else {
+                    console.log('🎯 Ignoring call:initiated - wrong state');
+                    console.log('🎯 Expected state: calling, actual:', currentState);
+                }
+
+                return currentState;
+            });
+        };
+
+        console.log('🔧 Registering call event listeners...');
+        socket.on('call:incoming', handleIncomingCall);
+        socket.on('call:missed', handleCallMissed);
+        socket.on('call:error', handleCallError);
+        socket.on('call:ended', handleCallEnded);
+        socket.on('call:answered', handleCallAnswered);
+        socket.on('call:answer-confirmed', handleCallAnswerConfirmed);
+        socket.on('call:declined', handleCallDeclined);
+        socket.on('call:initiated', handleCallInitiated);
+        console.log('✅ All call event listeners registered successfully');
 
         return () => {
-            socket.off('call:incoming');
-            socket.off('call:ended');
-            socket.off('call:answer-accepted');
-            socket.off('signal');
-        }
-    }, [socket, user, callState, currenntCallInfo, showAlert, endWebRTCCall]);
+            socket.off('call:incoming', handleIncomingCall);
+            socket.off('call:ended', handleCallEnded);
+            socket.off('call:answered', handleCallAnswered);
+            socket.off('call:answer-confirmed', handleCallAnswerConfirmed);
+            socket.off('call:declined', handleCallDeclined);
+            socket.off('call:missed', handleCallMissed);
+            socket.off('call:error', handleCallError);
+            socket.off('call:initiated', handleCallInitiated);
+        };
+    }, [socket, user, showAlert, endWebRTCCall, setCurrentCallRef, startCall]); const handleInitiateCall = async (callType) => {
+        console.log('🚀 ===== INITIATING CALL =====');
+        console.log('🚀 Call type:', callType);
+        console.log('🚀 Current chat:', currentChat);
+        console.log('🚀 Call state:', callState);
 
-    const handleInitiateCall = async (callType) => {
-        if (!currentChat || callState !== 'idle') return;
+        if (!currentChat || callState !== 'idle') {
+            console.log('🚀 Aborting call - invalid state or no chat');
+            return;
+        }
 
         const contactUser = currentChat.type === 'private' ? currentChat.members.find(member => member._id !== user._id) : null;
 
@@ -335,8 +503,6 @@ const Chat = React.memo(() => {
             return;
         }
 
-        console.log(`Initiating ${callType} call for conversation: ${currentChat._id} with user ${contactUser._id}`);
-
         const tempCallInfo = {
             conversationId: currentChat._id,
             type: callType,
@@ -353,91 +519,106 @@ const Chat = React.memo(() => {
             }
         };
 
+        console.log('🚀 Setting call info and state...');
         setCurrentCallInfo(tempCallInfo);
         setCallState('calling');
 
-        const callStartedSuccessfully = await startCall(tempCallInfo.conversationId, callType, contactUser._id);
-
-        if (callStartedSuccessfully) {
-            console.log('Call initiation process started successfully');
-        } else {
-            console.error('Failed to start WebRTC call');
+        try {
+            console.log('🚀 Emitting call:initiate event...');
+            socket.emit('call:initiate', {
+                conversationId: currentChat._id,
+                type: callType,
+                recipientId: contactUser._id
+            });
+            console.log('🚀 call:initiate event emitted successfully');
+        } catch (error) {
+            console.error('🚀 Error initiating call:', error);
+            showAlert(`Error initiating call: ${error.message}`, 'error');
             setCallState('idle');
             setCurrentCallInfo(null);
         }
-    };
 
+    };
     const handleAnswerCall = async () => {
-        if (callState !== 'receiving' || !currenntCallInfo || !currenntCallInfo.conversationId || !currenntCallInfo.initiator?._id) return;
-
-        console.log(`Answering call: ${currenntCallInfo.callId}`);
-
-        const offer = currenntCallInfo.metadata?.offer;
-        if (!offer) {
-            console.error('Cannot answer call: Missing offer in callInfo');
-            showAlert('error', 'Cannot answer call: Missing offer in callInfo');
-            handleDeclineCall();
-            return;
-        }
-
-        const answerAccepted = await answerCall(
-            currenntCallInfo.conversationId,
-            currenntCallInfo.type,
-            currenntCallInfo.initiator._id,
-            offer
-        );
-
-        if (answerAccepted) {
-            setCallState('inCall');
-            console.log('Call answer process started successfully');
-
-            const initiatorDetails = {
-                _id: currenntCallInfo.initiator._id,
-                name: currenntCallInfo.initiator.name,
-                avatar: currenntCallInfo.initiator.avatar
-            };
-
-            setCurrentCallInfo(prev => ({
-                ...prev,
-                otherParticipant: initiatorDetails
-            }))
-        } else {
-            console.error('Failed to start WebRTC call');
-            handleDeclineCall();
-        }
-    };
-
-    const handleDeclineCall = () => {
         if (callState !== 'receiving' || !currenntCallInfo) return;
 
-        console.log(`Declining call: ${currenntCallInfo.conversationId}`);
+        try {
+            console.log('Emit call:answer event');
+            socket.emit('call:answer', {
+                callId: currenntCallInfo.callId,  // Use callId, not conversationId
+            })
+            const answerAccepted = await answerCall(
+                currenntCallInfo.callId,  // Use callId, not conversationId
+                currenntCallInfo.type,
+                currenntCallInfo.initiator._id
+            );
+            console.log('WebRTC call answer result:', answerAccepted); if (answerAccepted) {
+                console.log('WebRTC call answered successfully');
+                setCallState('inCall'); // Chuyển ngay sang inCall state
+                const initiatorDetails = {
+                    _id: currenntCallInfo.initiator._id,
+                    name: currenntCallInfo.initiator.name,
+                    avatar: currenntCallInfo.initiator.avatar
+                };
+
+                setCurrentCallInfo(prev => ({
+                    ...prev,
+                    otherParticipant: initiatorDetails
+                }));
+            } else {
+                console.error('Failed to start WebRTC call');
+                socket.emit('call:decline', {
+                    callId: currenntCallInfo.callId,
+                    reason: 'webrtc_setup_failed'
+                })
+                setCallState('idle');
+                setCurrentCallInfo(null);
+                showAlert('Failed to start WebRTC call', 'error');
+            }
+
+        } catch (error) {
+            console.error('Error answering call:', error);
+            socket.emit('call:decline', {
+                callId: currenntCallInfo.callId,
+                reason: 'error'
+            });
+            setCallState('idle');
+            setCurrentCallInfo(null);
+            showAlert(`Error answering call: ${error.message}`, 'error');
+        }
+    }; const handleDeclineCall = () => {
+        if (callState !== 'receiving' || !currenntCallInfo) return;
 
         socket.emit('call:decline', {
-            callId: currenntCallInfo.conversationId
+            callId: currenntCallInfo.callId
         });
+
+        // Don't reset state here, let the call:ended event handle it
+        // This ensures both parties get the same cleanup via call:ended event
     };
+
     const handleEndCall = () => {
-        console.log('CurrentchatCallinfo', currenntCallInfo);
         if ((callState !== 'calling' && callState !== 'inCall') || !currenntCallInfo) return;
 
-        console.log(`Ending call: ${currenntCallInfo.conversationId}`);
+        console.log(`Ending call: ${currenntCallInfo.callId}`);
 
+        // First end the WebRTC call
         endWebRTCCall();
 
+        // Then emit the socket event
         socket.emit('call:end', {
-            callId: currenntCallInfo.conversationId
-        })
+            callId: currenntCallInfo.callId
+        });// Reset the call state
+        setCallState('idle');
+        setCurrentCallInfo(null);
     }
 
-    const contactUserCall = useMemo(() => {
-        if (!currentChat || currentChat.type !== 'private' || !user) return null;
-        return currentChat.members?.find(member => member._id !== user._id) || null;
-    }, [currentChat, user]);    //socket event handler
+    //socket event handler
     useEffect(() => {
         if (!socket) return;
 
         socket.on('chat:loaded', (data) => {
-            console.log('Received chat:loaded data in Chat component:', data);
+            // console.log('Received chat:loaded data in Chat component:', data);
 
             if (!data || !data.conversation) {
                 console.error('No conversation data received', data);
@@ -511,7 +692,7 @@ const Chat = React.memo(() => {
                 setTemporaryMessages(updatedTempMessages);
             }
             setPendingGroupChat(data.newConversation);
-        })
+        });
         const handleChatUpdate = (update) => {
             console.log('Chat updated:', update);
             if (update.type === 'update_members') {
@@ -566,6 +747,29 @@ const Chat = React.memo(() => {
                             ...update.data.lastMessage,
                         }
                         setMessages(prev => [...prev, newMessage]);
+                    }
+                }
+            }
+            if (update.type === 'last_message_update') {
+                if (currentChat && currentChat._id === update.data.conversationId) {
+                    // Update currentChat's lastMessage immediately
+                    setCurrentChat(prev => ({
+                        ...prev,
+                        lastMessage: update.data.lastMessage || prev.lastMessage,
+                    }));
+
+                    // Add the message to the chat if user is actively viewing this conversation
+                    if (update.data.lastMessage) {
+                        const newMessage = {
+                            ...update.data.lastMessage,
+                        }
+                        setMessages(prev => {
+                            const messageExists = prev.some(msg => msg._id === newMessage._id);
+                            if (messageExists) {
+                                return prev;
+                            }
+                            return [...prev, newMessage];
+                        });
                     }
                 }
             }
@@ -634,16 +838,16 @@ const Chat = React.memo(() => {
         socket.on('user:stopped-typing', handleUserStopTyping);
         socket.on('typing:users', handleTypingUsers);
         socket.on('message:new', async (data) => {
-            console.log('New message:', data);
+            // console.log('New message:', data);
             if (currentChat && currentChat._id === data.conversationId) {
                 // Decrypt the message content before adding to state
                 const decryptedMessage = {
                     ...data.message,
-                    content: await clientEncryptionService.decryptMessage(data.message.content, data.conversationId)
+                    content: await clientEncryptionService.decryptMessage(data?.message?.content, data.conversationId)
                 };
 
                 // Decrypt attachment filenames if present
-                if (data.message.attachments && data.message.attachments.length > 0) {
+                if (data?.message?.attachments && data?.message?.attachments.length > 0) {
                     decryptedMessage.attachments = await Promise.all(
                         data.message.attachments.map(async (attachment) => ({
                             ...attachment,
@@ -723,7 +927,7 @@ const Chat = React.memo(() => {
             if (currentChat && currentChat._id === data.conversationId) {
                 setMessages(prev =>
                     prev.map(msg => {
-                        if (msg.status !== 'read' && msg.sender._id !== user._id) {
+                        if (msg.status !== 'read' && msg.sender?._id !== user._id) {
                             return {
                                 ...msg,
                                 status: 'read',
@@ -945,7 +1149,9 @@ const Chat = React.memo(() => {
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages]); useEffect(() => {
+    }, [messages]);
+
+    useEffect(() => {
         const fetchMessages = async () => {
             if (currentChat && !currentChat.isTemporary) {
                 setLoading(true);
@@ -957,7 +1163,7 @@ const Chat = React.memo(() => {
                     });
 
                     if (response.data.success) {
-                        console.log('Fetched messages for conversation:', currentChat._id, response.data.data);
+                        // console.log('Fetched messages for conversation:', currentChat._id, response.data.data);
                         setMessages(response.data.data);
                     } else {
                         console.log('Error fetching messages:', response.data.message);
@@ -1294,7 +1500,7 @@ const Chat = React.memo(() => {
         }
     }
     useEffect(() => {
-        console.log('Selected files updated:', selectedFiles);
+        // console.log('Selected files updated:', selectedFiles);
     }, [selectedFiles]);
 
     const removeSelectedFile = (index) => {
@@ -2172,13 +2378,15 @@ const Chat = React.memo(() => {
                             alt="User"
                             className="w-full h-48 object-cover rounded-lg opacity-50"
                         />
-                        <button
-                            className="absolute top-2 right-2 bg-black bg-opacity-50 p-1 rounded-full"
-                            onClick={handleShowLeaveGroup}
-                        >
-                            <FaEllipsisV className="text-white" />
-                        </button>
-                        {showLeaveGroup && (
+                        {currentChat.type === 'group' && (
+                            <button
+                                className="absolute top-2 right-2 bg-black bg-opacity-50 p-1 rounded-full"
+                                onClick={handleShowLeaveGroup}
+                            >
+                                <FaEllipsisV className="text-white" />
+                            </button>
+                        )}
+                        {currentChat.type === 'group' && showLeaveGroup && (
                             <div
                                 ref={dropdownRef}
                                 className="absolute top-10 right-0 dark:bg-neutral-800 text-black p-2 rounded-lg shadow-lg z-10 w-1/2 text-sm  transition-colors duration-200 space-y-2">
@@ -2771,7 +2979,7 @@ const Chat = React.memo(() => {
     }
 
     const checkAdmin = currentChat?.members?.some(member => member._id === user._id && (member.role === 'admin' || member.role === 'deputy_admin' || member.permissionSystem?.manageDepartment === true));
-    console.log('Members:', currentChat?.members);
+    // console.log('Members:', currentChat?.members);
 
     return (
         <div className="flex h-full w-full dark:text-white overflow-hidden">
@@ -2785,538 +2993,569 @@ const Chat = React.memo(() => {
             <div
                 className={`dark:bg-neutral-800 flex h-full transition-all duration-300 ${showInfo ? 'flex-[1.5]' : 'flex-[2.5]'} justify-center items-center overflow-hidden`}
             >
-                {callState === 'receiving' && currenntCallInfo && (
-                    <IncomingCallModel
-                        callInformation={currenntCallInfo}
-                        onAnswer={handleAnswerCall}
-                        onDecline={handleDeclineCall}
-                    />
-                )}
-                <div className="w-full h-full flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-slate-900 shadow-2xl border-none backdrop-blur-sm dark:text-white relative">
-                    {(callState === 'calling' || callState === 'inCall') && currenntCallInfo ? (
-                        <IncallUI
+                {(() => {
+                    return callState === 'receiving' && currenntCallInfo && (
+                        <IncomingCallModal
                             callInfo={currenntCallInfo}
-                            localStream={localStream}
-                            remoteStream={remoteStream}
-                            onEndCall={handleEndCall}
-                            onToggleAudio={toggleAudio}
-                            onToggleVideo={toggleVideo}
-                            otherParticipant={callState === 'calling' ? currenntCallInfo.otherParticipant : currenntCallInfo.initiator}
+                            onAnswer={handleAnswerCall}
+                            onDecline={handleDeclineCall}
                         />
-                    ) : (
-
-                        currentChat ? (
-                            <>
-                                <div className="flex justify-between items-center dark:border-gray-700 ">
-                                    {renderChatHeader()}
-                                    <div className="flex space-x-3 items-center justify-center mr-5">
-                                        <button
-                                            className="text-neutral-600 dark:text-neutral-300 hover:text-green-500 dark:hover:text-green-400 focus:outline-none text-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                                            onClick={() => handleInitiateCall('voice')}
-                                            title="Start Voice Call"
-                                        >
-                                            <FiPhone />
-                                        </button>
-                                        <button
-                                            className="text-neutral-600 dark:text-neutral-300 hover:text-blue-500 dark:hover:text-blue-400 focus:outline-none text-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                                            onClick={() => handleInitiateCall('video')}
-                                            title="Start Video Call"
-                                        >
-                                            <FiVideo />
-                                        </button>
-                                        <button
-                                            className={`relative ${searchMode ? 'text-purple-500' : ''}`}
-                                            onClick={toggleSearchMode}
-                                        >
-                                            <BsSearch />
-                                        </button>
-                                        {searchMode && (
-                                            <div className="absolute top-16 right-0 z-20 dark:bg-neutral-800 rounded-lg shadow-lg p-1 flex flex-col w-full">
-                                                <div className="flex items-center mb-2">
-                                                    <input
-                                                        ref={searchInputRef}
-                                                        type="text"
-                                                        value={searchQuery}
-                                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                                        placeholder="Search messages..."
-                                                        className="flex-1 px-2 rounded-lg border dark:border-neutral-600 dark:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    />
+                    );
+                })()}
+                <div className="w-full h-full flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-slate-900 shadow-2xl border-none backdrop-blur-sm dark:text-white relative">                    {(callState === 'calling' || callState === 'inCall') && currenntCallInfo ? (
+                    (() => {
+                        const isInitiator = user._id === currenntCallInfo.initiator?._id;
+                        const calculatedOtherParticipant = isInitiator
+                            ? currenntCallInfo.otherParticipant
+                            : currenntCallInfo.initiator;
+                        return (
+                            <IncallUI
+                                callInfo={currenntCallInfo}
+                                localStream={localStream}
+                                remoteStream={remoteStream}
+                                onEndCall={handleEndCall}
+                                onToggleAudio={toggleAudio}
+                                onToggleVideo={toggleVideo}
+                                otherParticipant={calculatedOtherParticipant}
+                                isCallAnswered={callState === 'inCall'}
+                            />
+                        );
+                    })()
+                ) : (
+                    currentChat ? (
+                        <>
+                            <div className="flex justify-between items-center dark:border-gray-700 ">
+                                {renderChatHeader()}
+                                <div className="flex space-x-3 items-center justify-center mr-5">
+                                    <button
+                                        className="text-neutral-600 dark:text-neutral-300 hover:text-green-500 dark:hover:text-green-400 focus:outline-none text-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                                        onClick={() => handleInitiateCall('voice')}
+                                        title="Start Voice Call"
+                                    >
+                                        <FiPhone />
+                                    </button>
+                                    <button
+                                        className="text-neutral-600 dark:text-neutral-300 hover:text-blue-500 dark:hover:text-blue-400 focus:outline-none text-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                                        onClick={() => handleInitiateCall('video')}
+                                        title="Start Video Call"
+                                    >
+                                        <FiVideo />
+                                    </button>
+                                    <button
+                                        className={`relative ${searchMode ? 'text-purple-500' : ''}`}
+                                        onClick={toggleSearchMode}
+                                    >
+                                        <BsSearch />
+                                    </button>
+                                    {searchMode && (
+                                        <div className="absolute top-16 right-0 z-20 dark:bg-neutral-800 rounded-lg shadow-lg p-1 flex flex-col w-full">
+                                            <div className="flex items-center mb-2">
+                                                <input
+                                                    ref={searchInputRef}
+                                                    type="text"
+                                                    value={searchQuery}
+                                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                                    placeholder="Search messages..."
+                                                    className="flex-1 px-2 rounded-lg border dark:border-neutral-600 dark:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                />
+                                                <button
+                                                    onClick={clearSearch}
+                                                    className="ml-2 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                                                >
+                                                    <MdFormatClear />
+                                                </button>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-sm text-neutral-500">
+                                                    {searchResults.length > 0
+                                                        ? `${currentResultIndex + 1} of ${searchResults.length} results`
+                                                        : searchQuery ? "No results found" : ''
+                                                    }
+                                                </span>
+                                                <div className="flex space-x-2">
                                                     <button
-                                                        onClick={clearSearch}
-                                                        className="ml-2 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                                                        onClick={() => navigateSearchResults('up')}
+                                                        disabled={searchResults.length === 0}
+                                                        className={` rounded ${searchResults.length === 0 ? 'text-neutral-400 cursor-not-allowed' : 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                                                     >
-                                                        <MdFormatClear />
+                                                        <FaChevronUp />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => navigateSearchResults('down')}
+                                                        disabled={searchResults.length === 0}
+                                                        className={` rounded ${searchResults.length === 0 ? 'text-neutral-400 cursor-not-allowed' : 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                                                    >
+                                                        <FaChevronDown />
                                                     </button>
                                                 </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-sm text-neutral-500">
-                                                        {searchResults.length > 0
-                                                            ? `${currentResultIndex + 1} of ${searchResults.length} results`
-                                                            : searchQuery ? "No results found" : ''
-                                                        }
-                                                    </span>
-                                                    <div className="flex space-x-2">
-                                                        <button
-                                                            onClick={() => navigateSearchResults('up')}
-                                                            disabled={searchResults.length === 0}
-                                                            className={` rounded ${searchResults.length === 0 ? 'text-neutral-400 cursor-not-allowed' : 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
-                                                        >
-                                                            <FaChevronUp />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => navigateSearchResults('down')}
-                                                            disabled={searchResults.length === 0}
-                                                            className={` rounded ${searchResults.length === 0 ? 'text-neutral-400 cursor-not-allowed' : 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
-                                                        >
-                                                            <FaChevronDown />
-                                                        </button>
-                                                    </div>
-                                                </div>
                                             </div>
-                                        )}
-                                        <button className="cursor-pointer" onClick={handleShowInfo}>
-                                            <FaInfoCircle />
-                                        </button>
-                                    </div>
-                                </div>
-                                {renderPinnedMessage()}
-                                <div className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500">
-                                    {loading ? (
-                                        <div className="flex items-center justify-center h-full">
-                                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
                                         </div>
-                                    ) : (
-                                        <>
-                                            {allMessages.map((msg, index, array) => {
-                                                const reactionsMap = allReactionsMaps[msg._id];
-                                                if (msg.type === 'system') {
-                                                    if (msg.metadata?.action === 'member_added') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500 " key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'member_removed') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'admin_transferred') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'deputy_transferred') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'group_info_updated') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'message_pinned') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'message_unpinned') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'header_assigned') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'deputy_assigned') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'header_removed') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
-                                                    if (msg.metadata?.action === 'deputy_removed') {
-                                                        return (
-                                                            <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                                {renderAddMessage(msg)}
-                                                            </div>
-                                                        )
-                                                    }
+                                    )}
+                                    <button className="cursor-pointer" onClick={handleShowInfo}>
+                                        <FaInfoCircle />
+                                    </button>
+                                </div>
+                            </div>
+                            {renderPinnedMessage()}
+                            <div className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500">
+                                {loading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {allMessages.map((msg, index, array) => {
+                                            const reactionsMap = allReactionsMaps[msg._id];
+                                            if (msg.type === 'system') {
+                                                if (msg.metadata?.action === 'member_added') {
                                                     return (
-                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
-                                                            {msg.content}
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500 " key={msg._id}>
+                                                            {renderAddMessage(msg)}
                                                         </div>
                                                     )
                                                 }
-                                                const isCurrentUser = msg.sender._id === user._id;
-                                                return (
-                                                    <div
-                                                        id={`message-${msg._id}`}
-                                                        key={msg._id}
-                                                        className={`flex justify-${msg.sender._id === user._id ? 'end' : 'start'} mb-4 ${msg._id === highlightedMessageId ? 'bg-neutral-200 dark:bg-neutral-800 rounded-xl' : ''
-                                                            }`}
-                                                    >
-                                                        {!isCurrentUser && (
-                                                            <div className="flex flex-col item justify-center  space-y-2 items-center">
-                                                                <img
-                                                                    src={msg.sender.avatar || "https://randomuser.me/api/portraits/men/32.jpg"}
-                                                                    alt={msg.sender.name}
-                                                                    className="w-8 h-8 rounded-full mr-2"
-                                                                    title={msg.sender.name}
-                                                                />
-                                                                {currentChat.type === 'department' || currentChat.type === 'group' && (
-                                                                    <div className="text-xs text-gray-400 font-semibold">{msg.sender.name}</div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        <div>
-                                                            <div className="flex flex-col">
-                                                                {renderReplyPreview(msg)}
-
-                                                                {msg.type === 'multimedia' && msg.attachments.length > 0 ? (
-                                                                    <div className="mb-2 flex flex-wrap gap-2">
-                                                                        {msg.attachments.map((attachment, index) => (
-                                                                            <RenderAttachment key={index} attachment={attachment} />
-                                                                        ))}
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className={`relative max-w-xs rounded-2xl px-3 py-2 ${isCurrentUser
-                                                                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
-                                                                        : 'bg-white dark:bg-neutral-800 border border-gray-100 dark:border-neutral-700 dark:text-white shadow-sm'}`}>                                                                    <div>
-                                                                            {msg.content &&
-                                                                                <div className="w-fit group">
-                                                                                    {renderMessage(msg)}
-                                                                                    {msg.reactions.length > 0 && (
-                                                                                        <div
-                                                                                            className={`absolute cursor-pointer -bottom-[10px] ${msg.sender._id === user._id ? '-left-2' : '-right-2'} flex items-center justify-center space-x-1 dark:text-neutral-400 dark:bg-neutral-700 bg-neutral-200 rounded-full shadow-xl px-1`}
-                                                                                            onClick={() => handleShowDetailReaction(msg._id)}
-                                                                                        >
-                                                                                            {Object.entries(reactionsMap).map(([emoji, data]) => (
-                                                                                                <span
-                                                                                                    key={emoji}
-                                                                                                    className="text-[12px] cursor-pointer flex items-center dark:hover:bg-neutral-600 hover:bg-neutral-300  rounded-full"
-                                                                                                    onClick={(e) => {
-                                                                                                        e.stopPropagation();
-                                                                                                        handleReaction(msg._id, emoji);
-                                                                                                    }}
-                                                                                                    title={`${data.users.length} person reacted ${emoji}`}
-                                                                                                >
-                                                                                                    {emoji}
-                                                                                                </span>
-                                                                                            ))}
-                                                                                            <span className="text-xs dark:text-neutral-300">
-                                                                                                {msg.reactions.length}
-                                                                                            </span>
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {/* reaction details */}
-                                                                                    {showDetailReaction === msg._id && (
-                                                                                        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-                                                                                            <div className={`p-8 rounded-lg w-[500px] dark:bg-neutral-800 bg-neutral-200 space-y-5`}>
-                                                                                                <div className="flex  justify-between items-center">
-                                                                                                    <h2 className="text-2xl font-bold">Detail reactions</h2>
-                                                                                                    <MdClose onClick={handleShowDetailReaction} className="dark:bg-neutral-700 bg-neutral-200 hover:bg-neutral-300 rounded-full p-1 text-2xl dark:hover:bg-neutral-600" />
-                                                                                                </div>
-                                                                                                <div className="dark:bg-neutral-700 rounded-lg flex items-center justify-between">
-                                                                                                    <button
-                                                                                                        onClick={() => setActiveTab('all')}
-                                                                                                        className={`text-xl rounded-full py-1 w-full ${activeTab === 'all' ? 'dark:bg-neutral-600 bg-neutral-300' : 'dark:bg-neutral-00 dark:hover:bg-neutral-600 hover:bg-neutral-300'}`}
-                                                                                                    >
-                                                                                                        <p className="text-base">
-                                                                                                            All reaction {msg.reactions.length}
-                                                                                                        </p>
-                                                                                                    </button>
-                                                                                                    {Object.entries(reactionsMap).map(([emoji, data]) => (
-                                                                                                        <button
-                                                                                                            key={emoji}
-                                                                                                            onClick={() => setActiveTab(emoji)}
-                                                                                                            className={`text-lg py-0.5 dark:bg-neutral-700 text-center cursor-pointer flex items-center hover:bg-neutral-300 dark:hover:bg-neutral-600 rounded-full justify-center w-full ${activeTab === emoji ? 'bg-neutral-300' : ''}`}
-                                                                                                        >
-                                                                                                            {emoji}
-                                                                                                            <span className="ml-1 text-xs">{data.count}</span>
-                                                                                                        </button>
-                                                                                                    ))}
-                                                                                                </div>
-                                                                                                <div className="max-h-[300px] overflow-y-auto">
-                                                                                                    {activeTab === 'all' ? (
-                                                                                                        getUserReactions(msg.reactions).map((item, index) => (
-                                                                                                            <div key={index} className="flex items-center justify-between dark:bg-neutral-700 hover:bg-neutral-300 bg-neutral-200 rounded-lg p-2 mb-5">
-                                                                                                                <div className="flex items-center">
-                                                                                                                    <img src={item.user.avatar} alt={item.user.name} className="w-10 h-10 rounded-full mr-3" />
-                                                                                                                    <div>
-                                                                                                                        <p>{item.user.name}</p>
-                                                                                                                        {item.user._id === user._id &&
-                                                                                                                            <button
-                                                                                                                                onClick={() => handleRemoveReaction(msg._id, item.reactions[0])}
-                                                                                                                                className="text-xs text-neutral-400"
-                                                                                                                            >
-                                                                                                                                Click to remove reaction
-                                                                                                                            </button>
-                                                                                                                        }
-                                                                                                                    </div>
-                                                                                                                </div>
-                                                                                                                <div className="flex">
-                                                                                                                    {item.reactions.map((emoji, i) => (
-                                                                                                                        <span key={i} className="text-xl mr-1">{emoji}</span>
-                                                                                                                    ))}
-                                                                                                                </div>
-                                                                                                            </div>
-                                                                                                        ))
-                                                                                                    ) : (
-                                                                                                        // Hiển thị reactions cho tab được chọn
-                                                                                                        msg.reactions
-                                                                                                            .filter(reaction => reaction.emoji === activeTab)
-                                                                                                            .map((reaction, index) => {
-                                                                                                                const userObj = typeof reaction.user === 'object' ? reaction.user : { _id: reaction.user, name: 'Unknown', avatar: '' };
-                                                                                                                return (
-                                                                                                                    <div key={index} className="flex items-center justify-between dark:bg-neutral-700 dark:hover:bg-neutral-600 rounded-lg p-2 mb-5">
-                                                                                                                        <div className="flex items-center">
-                                                                                                                            <img src={userObj.avatar} alt={userObj.name} className="w-10 h-10 rounded-full mr-3" />
-                                                                                                                            <div>
-                                                                                                                                <p>{userObj.name}</p>
-                                                                                                                                {userObj._id === user._id &&
-                                                                                                                                    <button
-                                                                                                                                        onClick={() => handleRemoveReaction(msg._id, activeTab)}
-                                                                                                                                        className="text-xs text-neutral-400"
-                                                                                                                                    >
-                                                                                                                                        Click to remove reaction
-                                                                                                                                    </button>
-                                                                                                                                }
-                                                                                                                            </div>
-                                                                                                                        </div>
-                                                                                                                        <div className="flex">
-                                                                                                                            <span className="text-xl mr-1">{reaction.emoji}</span>
-                                                                                                                        </div>
-                                                                                                                    </div>
-                                                                                                                );
-                                                                                                            })
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {!msg.isRecalled && (
-                                                                                        <div className={`absolute top-3 ${msg.sender._id === user._id ? '-left-20' : '-right-20'} flex items-center justify-center space-x-2 text-xs text-gray-400 
-                                                                                    ${activeMessageId === msg._id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} 
-                                                                                    transition-opacity duration-200`}
-                                                                                        >
-                                                                                            <button
-                                                                                                onClick={() => handleReply(msg)}
-                                                                                            >
-                                                                                                <FaReply className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
-                                                                                            </button>
-                                                                                            <button onClick={(e) => toggleReaction(msg._id, e)}>
-                                                                                                <MdOutlineEmojiEmotions className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
-                                                                                            </button>
-                                                                                            <div className="relative mt-0.5" >
-                                                                                                <button onClick={(e) => toggleOptionMenu(msg._id, e)}>
-                                                                                                    <HiOutlineDotsVertical className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
-                                                                                                </button>
-                                                                                                {activeMessageId === msg._id && (
-                                                                                                    <div className={`absolute ${msg.sender._id === user._id ? 'right-5' : '-right-[90px]'} -top-3 bg-white dark:text-white dark:bg-neutral-700 rounded-lg shadow-md z-10 flex flex-col items-start w-20 space-y-1 px-1 py-1 option-menu`}>
-                                                                                                        <button
-                                                                                                            className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
-                                                                                                            onClick={() => handlePinMessage(msg._id)}
-                                                                                                        >
-                                                                                                            Pin
-                                                                                                        </button>
-                                                                                                        <button className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1">Forward</button>
-                                                                                                        <button
-                                                                                                            className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
-                                                                                                            onClick={() => {
-                                                                                                                setShowRecall(!showRecall);
-                                                                                                                setActiveMessageId(null);
-                                                                                                            }}>
-                                                                                                            Recall
-                                                                                                        </button>
-                                                                                                    </div>
-                                                                                                )}
-
-                                                                                                {showRecall && (
-                                                                                                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                                                                                        <div className={`p-8 rounded-lg w-[400px] bg-neutral-900 space-y-5`}>
-                                                                                                            <div className="flex justify-between items-center">
-                                                                                                                <h2 className="text-2xl font-bold dark:text-white">Recall a message</h2>
-                                                                                                                <MdClose className="text-lg cursor-pointer" onClick={() => setShowRecall(!showRecall)} />
-                                                                                                            </div>
-                                                                                                            <p className="text-sm text-gray-400 mt-9">Are you sure you want to recall this message?</p>
-                                                                                                            <button
-                                                                                                                className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
-                                                                                                                onClick={() => handleRecall(msg._id, 'everyone', msg.conversationId)}
-                                                                                                            >
-                                                                                                                For everyone
-                                                                                                            </button>
-                                                                                                            <button
-                                                                                                                className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
-                                                                                                                onClick={() => handleRecall(msg._id, 'self', msg.conversationId)}
-                                                                                                            >
-                                                                                                                For me
-                                                                                                            </button>
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {activeReaction === msg._id && (
-                                                                                        <div className={`absolute flex ${msg.sender._id === user._id ? '-right-5' : 'left-5'} -bottom-5 space-x-1 text-xs text-gray-400 bg-white dark:bg-neutral-500 opacity-90 p-1 rounded-full shadow-md z-10 reaction-menu`}>
-                                                                                            {REACTIONS.map(({ emoji, name }) => (
-                                                                                                <button
-                                                                                                    key={name}
-                                                                                                    className="hover:bg-gray-100 dark:hover:bg-neutral-400 p-1 rounded-full transition-colors"
-                                                                                                    title={name}
-                                                                                                    onClick={() => handleReaction(msg._id, emoji)}
-                                                                                                >
-                                                                                                    <span className="text-sm">{emoji}</span>
-                                                                                                </button>
-                                                                                            ))}
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                            }
-                                                                        </div>
-                                                                        {/* Hiển thị tên người gửi và thời gian */}
-                                                                        {index === array.length - 1 && (
-                                                                            <div className={`absolute -bottom-5 right-0 w-48 flex items-center mt-1 text-[10px] font-mono ${isCurrentUser ? 'text-gray-500 justify-end' : 'text-gray-400 justify-start'}`}>
-                                                                                {msg.sender._id === user._id ? (
-                                                                                    currentChat.type === 'private' ? (
-                                                                                        <div className="flex items-center space-x-1 h-4">
-                                                                                            {msg.status === 'sent' ? (
-                                                                                                <span className="text-green-400">✔️</span>
-                                                                                            ) : msg.status === 'read' ? (
-                                                                                                <span className="text-green-400">✔️✔️</span>
-                                                                                            ) : null}
-                                                                                            <span className="whitespace-nowrap">
-                                                                                                {new Date(msg.createdAt).toLocaleTimeString([], {
-                                                                                                    hour: '2-digit',
-                                                                                                    minute: '2-digit',
-                                                                                                    hour12: true
-                                                                                                })}
-                                                                                            </span>
-                                                                                        </div>
-                                                                                    ) : (
-                                                                                        renderReadByUsers(msg.readBy, msg.createdAt)
-                                                                                    )
-                                                                                ) : null}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-
-                                                                )}
-                                                            </div>
-
+                                                if (msg.metadata?.action === 'member_removed') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
                                                         </div>
-                                                        {isCurrentUser && (
-                                                            <div className="items-center flex flex-col justify-center space-y-2">
-                                                            </div>
-                                                        )}
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'admin_transferred') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'deputy_transferred') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'group_info_updated') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'message_pinned') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'message_unpinned') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'header_assigned') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'deputy_assigned') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'header_removed') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'deputy_removed') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            {renderAddMessage(msg)}
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'call_ended') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            <span className="italic text-neutral-400">{msg.content}</span>
+                                                        </div>
+                                                    )
+                                                }
+                                                if (msg.metadata?.action === 'call_missed') {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            <span className="italic text-neutral-400">{msg.content}</span>
+                                                        </div>
+                                                    )
+                                                }
+                                                // Handle call system messages (call ended, declined, etc.)
+                                                if (msg.metadata?.callId) {
+                                                    return (
+                                                        <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                            <span className="italic text-neutral-400">{msg.content}</span>
+                                                        </div>
+                                                    )
+                                                }
+                                                return (
+                                                    <div className="flex justify-center items-center mb-4 text-sm dark:text-neutral-500" key={msg._id}>
+                                                        {msg.content}
                                                     </div>
                                                 )
-                                            })}
-                                            {temporaryMessages.map((message) => (
+                                            }
+                                            const isCurrentUser = msg.sender?._id === user._id;
+                                            return (
                                                 <div
-                                                    key={message.tempId}
-                                                    className="flex item-end mb-4"
+                                                    id={`message-${msg._id}`}
+                                                    key={msg._id}
+                                                    className={`flex justify-${msg.sender?._id === user._id ? 'end' : 'start'} mb-4 ${msg._id === highlightedMessageId ? 'bg-neutral-200 dark:bg-neutral-800 rounded-xl' : ''
+                                                        }`}
                                                 >
-                                                    <div className="ml-0 mr-3 relative">
-                                                        <div className="bg-purple-800 text-white rounded-lg p-3 max-w-xs relative group">
-                                                            <p>{message.content}</p>
-                                                            <div className="flex items-center justify-end mt-1 text-xs text-gray-400">
-                                                                <span>
-                                                                    {new Date().toLocaleTimeString([], {
-                                                                        hour: '2-digit',
-                                                                        minute: '2-digit'
-                                                                    })}
-                                                                </span>
-                                                                <span className="ml-2 font-semibold">You</span>
-                                                            </div>
+                                                    {!isCurrentUser && (
+                                                        <div className="flex flex-col item justify-center  space-y-2 items-center">
+                                                            <img
+                                                                src={msg.sender?.avatar || "https://randomuser.me/api/portraits/men/32.jpg"}
+                                                                alt={msg.sender?.name}
+                                                                className="w-8 h-8 rounded-full mr-2"
+                                                                title={msg.sender?.name}
+                                                            />
+                                                            {currentChat.type === 'department' || currentChat.type === 'group' && (
+                                                                <div className="text-xs text-gray-400 font-semibold">{msg.sender?.name}</div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <div className="flex flex-col">
+                                                            {renderReplyPreview(msg)}
+
+                                                            {msg.type === 'multimedia' && msg.attachments.length > 0 ? (
+                                                                <div className="mb-2 flex flex-wrap gap-2">
+                                                                    {msg.attachments.map((attachment, index) => (
+                                                                        <RenderAttachment key={index} attachment={attachment} />
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className={`relative max-w-xs rounded-2xl px-3 py-2 ${isCurrentUser
+                                                                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                                                                    : 'bg-white dark:bg-neutral-800 border border-gray-100 dark:border-neutral-700 dark:text-white shadow-sm'}`}>                                                                    <div>
+                                                                        {msg.content &&
+                                                                            <div className="w-fit group">
+                                                                                {renderMessage(msg)}
+                                                                                {msg.reactions.length > 0 && (
+                                                                                    <div
+                                                                                        className={`absolute cursor-pointer -bottom-[10px] ${msg.sender?._id === user._id ? '-left-2' : '-right-2'} flex items-center justify-center space-x-1 dark:text-neutral-400 dark:bg-neutral-700 bg-neutral-200 rounded-full shadow-xl px-1`}
+                                                                                        onClick={() => handleShowDetailReaction(msg._id)}
+                                                                                    >
+                                                                                        {Object.entries(reactionsMap).map(([emoji, data]) => (
+                                                                                            <span
+                                                                                                key={emoji}
+                                                                                                className="text-[12px] cursor-pointer flex items-center dark:hover:bg-neutral-600 hover:bg-neutral-300  rounded-full"
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handleReaction(msg?._id, emoji);
+                                                                                                }}
+                                                                                                title={`${data.users.length} person reacted ${emoji}`}
+                                                                                            >
+                                                                                                {emoji}
+                                                                                            </span>
+                                                                                        ))}
+                                                                                        <span className="text-xs dark:text-neutral-300">
+                                                                                            {msg.reactions.length}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                )}
+                                                                                {/* reaction details */}
+                                                                                {showDetailReaction === msg._id && (
+                                                                                    <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+                                                                                        <div className={`p-8 rounded-lg w-[500px] dark:bg-neutral-800 bg-neutral-200 space-y-5`}>
+                                                                                            <div className="flex  justify-between items-center">
+                                                                                                <h2 className="text-2xl font-bold">Detail reactions</h2>
+                                                                                                <MdClose onClick={handleShowDetailReaction} className="dark:bg-neutral-700 bg-neutral-200 hover:bg-neutral-300 rounded-full p-1 text-2xl dark:hover:bg-neutral-600" />
+                                                                                            </div>
+                                                                                            <div className="dark:bg-neutral-700 rounded-lg flex items-center justify-between">
+                                                                                                <button
+                                                                                                    onClick={() => setActiveTab('all')}
+                                                                                                    className={`text-xl rounded-full py-1 w-full ${activeTab === 'all' ? 'dark:bg-neutral-600 bg-neutral-300' : 'dark:bg-neutral-00 dark:hover:bg-neutral-600 hover:bg-neutral-300'}`}
+                                                                                                >
+                                                                                                    <p className="text-base">
+                                                                                                        All reaction {msg.reactions.length}
+                                                                                                    </p>
+                                                                                                </button>
+                                                                                                {Object.entries(reactionsMap).map(([emoji, data]) => (
+                                                                                                    <button
+                                                                                                        key={emoji}
+                                                                                                        onClick={() => setActiveTab(emoji)}
+                                                                                                        className={`text-lg py-0.5 dark:bg-neutral-700 text-center cursor-pointer flex items-center hover:bg-neutral-300 dark:hover:bg-neutral-600 rounded-full justify-center w-full ${activeTab === emoji ? 'bg-neutral-300' : ''}`}
+                                                                                                    >
+                                                                                                        {emoji}
+                                                                                                        <span className="ml-1 text-xs">{data.count}</span>
+                                                                                                    </button>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                            <div className="max-h-[300px] overflow-y-auto">
+                                                                                                {activeTab === 'all' ? (
+                                                                                                    getUserReactions(msg.reactions).map((item, index) => (
+                                                                                                        <div key={index} className="flex items-center justify-between dark:bg-neutral-700 hover:bg-neutral-300 bg-neutral-200 rounded-lg p-2 mb-5">
+                                                                                                            <div className="flex items-center">
+                                                                                                                <img src={item.user.avatar} alt={item.user.name} className="w-10 h-10 rounded-full mr-3" />
+                                                                                                                <div>
+                                                                                                                    <p>{item.user.name}</p>
+                                                                                                                    {item.user._id === user._id &&
+                                                                                                                        <button
+                                                                                                                            onClick={() => handleRemoveReaction(msg._id, item.reactions[0])}
+                                                                                                                            className="text-xs text-neutral-400"
+                                                                                                                        >
+                                                                                                                            Click to remove reaction
+                                                                                                                        </button>
+                                                                                                                    }
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                            <div className="flex">
+                                                                                                                {item.reactions.map((emoji, i) => (
+                                                                                                                    <span key={i} className="text-xl mr-1">{emoji}</span>
+                                                                                                                ))}
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    ))
+                                                                                                ) : (
+                                                                                                    // Hiển thị reactions cho tab được chọn
+                                                                                                    msg.reactions
+                                                                                                        .filter(reaction => reaction.emoji === activeTab)
+                                                                                                        .map((reaction, index) => {
+                                                                                                            const userObj = typeof reaction.user === 'object' ? reaction.user : { _id: reaction.user, name: 'Unknown', avatar: '' };
+                                                                                                            return (
+                                                                                                                <div key={index} className="flex items-center justify-between dark:bg-neutral-700 dark:hover:bg-neutral-600 rounded-lg p-2 mb-5">
+                                                                                                                    <div className="flex items-center">
+                                                                                                                        <img src={userObj.avatar} alt={userObj.name} className="w-10 h-10 rounded-full mr-3" />
+                                                                                                                        <div>
+                                                                                                                            <p>{userObj.name}</p>
+                                                                                                                            {userObj._id === user._id &&
+                                                                                                                                <button
+                                                                                                                                    onClick={() => handleRemoveReaction(msg._id, activeTab)}
+                                                                                                                                    className="text-xs text-neutral-400"
+                                                                                                                                >
+                                                                                                                                    Click to remove reaction
+                                                                                                                                </button>
+                                                                                                                            }
+                                                                                                                        </div>
+                                                                                                                    </div>
+                                                                                                                    <div className="flex">
+                                                                                                                        <span className="text-xl mr-1">{reaction.emoji}</span>
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                            );
+                                                                                                        })
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+                                                                                {!msg.isRecalled && (
+                                                                                    <div className={`absolute top-3 ${msg.sender?._id === user._id ? '-left-20' : '-right-20'} flex items-center justify-center space-x-2 text-xs text-gray-400 
+                                                                                    ${activeMessageId === msg._id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} 
+                                                                                    transition-opacity duration-200`}
+                                                                                    >
+                                                                                        <button
+                                                                                            onClick={() => handleReply(msg)}
+                                                                                        >
+                                                                                            <FaReply className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                        </button>
+                                                                                        <button onClick={(e) => toggleReaction(msg._id, e)}>
+                                                                                            <MdOutlineEmojiEmotions className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                        </button>
+                                                                                        <div className="relative mt-0.5" >
+                                                                                            <button onClick={(e) => toggleOptionMenu(msg._id, e)}>
+                                                                                                <HiOutlineDotsVertical className="dark:hover:bg-neutral-600 hover:bg-neutral-200 rounded-lg p-1 text-xl" />
+                                                                                            </button>
+                                                                                            {activeMessageId === msg._id && (
+                                                                                                <div className={`absolute ${msg.sender._id === user._id ? 'right-5' : '-right-[90px]'} -top-3 bg-white dark:text-white dark:bg-neutral-700 rounded-lg shadow-md z-10 flex flex-col items-start w-20 space-y-1 px-1 py-1 option-menu`}>
+                                                                                                    <button
+                                                                                                        className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
+                                                                                                        onClick={() => handlePinMessage(msg._id)}
+                                                                                                    >
+                                                                                                        Pin
+                                                                                                    </button>
+                                                                                                    <button className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1">Forward</button>
+                                                                                                    <button
+                                                                                                        className="hover:bg-gray-100 dark:hover:bg-neutral-500 rounded-md transition-colors text-left w-full px-1"
+                                                                                                        onClick={() => {
+                                                                                                            setShowRecall(!showRecall);
+                                                                                                            setActiveMessageId(null);
+                                                                                                        }}>
+                                                                                                        Recall
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            )}
+
+                                                                                            {showRecall && (
+                                                                                                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                                                                                    <div className={`p-8 rounded-lg w-[400px] bg-neutral-900 space-y-5`}>
+                                                                                                        <div className="flex justify-between items-center">
+                                                                                                            <h2 className="text-2xl font-bold dark:text-white">Recall a message</h2>
+                                                                                                            <MdClose className="text-lg cursor-pointer" onClick={() => setShowRecall(!showRecall)} />
+                                                                                                        </div>
+                                                                                                        <p className="text-sm text-gray-400 mt-9">Are you sure you want to recall this message?</p>
+                                                                                                        <button
+                                                                                                            className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
+                                                                                                            onClick={() => handleRecall(msg._id, 'everyone', msg.conversationId)}
+                                                                                                        >
+                                                                                                            For everyone
+                                                                                                        </button>
+                                                                                                        <button
+                                                                                                            className="font-semibold bg-neutral-700 px-3 text-sm py-1 rounded-full hover:dark:bg-neutral-600 transition-colors duration-300 w-full"
+                                                                                                            onClick={() => handleRecall(msg._id, 'self', msg.conversationId)}
+                                                                                                        >
+                                                                                                            For me
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+                                                                                {activeReaction === msg._id && (
+                                                                                    <div className={`absolute flex ${msg.sender?._id === user._id ? '-right-5' : 'left-5'} -bottom-5 space-x-1 text-xs text-gray-400 bg-white dark:bg-neutral-500 opacity-90 p-1 rounded-full shadow-md z-10 reaction-menu`}>
+                                                                                        {REACTIONS.map(({ emoji, name }) => (
+                                                                                            <button
+                                                                                                key={name}
+                                                                                                className="hover:bg-gray-100 dark:hover:bg-neutral-400 p-1 rounded-full transition-colors"
+                                                                                                title={name}
+                                                                                                onClick={() => handleReaction(msg._id, emoji)}
+                                                                                            >
+                                                                                                <span className="text-sm">{emoji}</span>
+                                                                                            </button>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        }
+                                                                    </div>
+                                                                    {/* Hiển thị tên người gửi và thời gian */}
+                                                                    {index === array.length - 1 && (
+                                                                        <div className={`absolute -bottom-5 right-0 w-48 flex items-center mt-1 text-[10px] font-mono ${isCurrentUser ? 'text-gray-500 justify-end' : 'text-gray-400 justify-start'}`}>
+                                                                            {msg.sender?._id === user._id ? (
+                                                                                currentChat.type === 'private' ? (
+                                                                                    <div className="flex items-center space-x-1 h-4">
+                                                                                        {msg.status === 'sent' ? (
+                                                                                            <span className="text-green-400">✔️</span>
+                                                                                        ) : msg.status === 'read' ? (
+                                                                                            <span className="text-green-400">✔️✔️</span>
+                                                                                        ) : null}
+                                                                                        <span className="whitespace-nowrap">
+                                                                                            {new Date(msg.createdAt).toLocaleTimeString([], {
+                                                                                                hour: '2-digit',
+                                                                                                minute: '2-digit',
+                                                                                                hour12: true
+                                                                                            })}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    renderReadByUsers(msg.readBy, msg.createdAt)
+                                                                                )
+                                                                            ) : null}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                            )}
+                                                        </div>
+
+                                                    </div>
+                                                    {isCurrentUser && (
+                                                        <div className="items-center flex flex-col justify-center space-y-2">
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )
+                                        })}
+                                        {temporaryMessages.map((message) => (
+                                            <div
+                                                key={message.tempId}
+                                                className="flex item-end mb-4"
+                                            >
+                                                <div className="ml-0 mr-3 relative">
+                                                    <div className="bg-purple-800 text-white rounded-lg p-3 max-w-xs relative group">
+                                                        <p>{message.content}</p>
+                                                        <div className="flex items-center justify-end mt-1 text-xs text-gray-400">
+                                                            <span>
+                                                                {new Date().toLocaleTimeString([], {
+                                                                    hour: '2-digit',
+                                                                    minute: '2-digit'
+                                                                })}
+                                                            </span>
+                                                            <span className="ml-2 font-semibold">You</span>
                                                         </div>
                                                     </div>
-                                                    <img
-                                                        src={user.avatar || "https://randomuser.me/api/portraits"}
-                                                        alt="User"
-                                                        className="w-8 h-8 rounded-full"
-                                                    />
                                                 </div>
-                                            ))}
-                                            <div ref={messagesEndRef}></div>
-                                        </>
-                                    )}
-                                </div>
-
-                                {replyingTo && (
-                                    <div className={`px-4 py-2 flex items-center justify-between bg-neutral-700`}>
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-semibold">
-                                                Replying to {replyingTo.sender.name === user.name ? 'You' : replyingTo.sender.name}
-                                            </span>
-                                            <span className={`text-sm text-gray-700 truncate dark:text-gray-300  bg-neutral-700`}>
-                                                {replyingTo.content}
-                                            </span>
-                                        </div>
-                                        <button
-                                            onClick={cancelReply}
-                                            className="text-gray-500 hover:text-gray-700"
-                                        >
-                                            <MdClose />
-                                        </button>
-                                    </div>
-                                )}
-
-                                {currentChat && typingUsers[currentChat._id] && typingUsers[currentChat._id].length > 0 && (
-                                    <TypingIndicator users={typingUsers[currentChat._id]} />
-                                )}
-                                {currentChat.type === 'private' || currentChat.type === 'group' ? (
-                                    inputMessageUI()
-                                ) : currentChat.type === 'department' ? (
-                                    checkAdmin
-                                        ? (
-                                            inputMessageUI()
-                                        ) : (
-                                            <div className="dark:bg-neutral-800 bg-neutral-200 flex flex-col items-center justify-center p-3 rounded-lg">
-                                                <p className="text-sm dark:text-neutral-400 text-center">
-                                                    You don't have permission to send messages in this group
-                                                </p>
+                                                <img
+                                                    src={user.avatar || "https://randomuser.me/api/portraits"}
+                                                    alt="User"
+                                                    className="w-8 h-8 rounded-full"
+                                                />
                                             </div>
-                                        )
-
-                                ) : null}
-                            </>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full">
-                                <div className="text-3xl mb-4">👋</div>
-                                <p className="text-lg font-semibold">Select a chat to start messaging</p>
-                                <p className="text-sm text-gray-400 text-center mt-2">
-                                    Click on a contact from the list to begin a conversation
-                                </p>
+                                        ))}
+                                        <div ref={messagesEndRef}></div>
+                                    </>
+                                )}
                             </div>
-                        )
-                    )}
+
+                            {replyingTo && (
+                                <div className={`px-4 py-2 flex items-center justify-between bg-neutral-700`}>
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-semibold">
+                                            Replying to {replyingTo.sender?.name === user.name ? 'You' : replyingTo.sender?.name}
+                                        </span>
+                                        <span className={`text-sm text-gray-700 truncate dark:text-gray-300  bg-neutral-700`}>
+                                            {replyingTo.content}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={cancelReply}
+                                        className="text-gray-500 hover:text-gray-700"
+                                    >
+                                        <MdClose />
+                                    </button>
+                                </div>
+                            )}
+
+                            {currentChat && typingUsers[currentChat._id] && typingUsers[currentChat._id].length > 0 && (
+                                <TypingIndicator users={typingUsers[currentChat._id]} />
+                            )}
+                            {currentChat.type === 'private' || currentChat.type === 'group' ? (
+                                inputMessageUI()
+                            ) : currentChat.type === 'department' ? (
+                                checkAdmin
+                                    ? (
+                                        inputMessageUI()
+                                    ) : (
+                                        <div className="dark:bg-neutral-800 bg-neutral-200 flex flex-col items-center justify-center p-3 rounded-lg">
+                                            <p className="text-sm dark:text-neutral-400 text-center">
+                                                You don't have permission to send messages in this group
+                                            </p>
+                                        </div>
+                                    )
+
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full">
+                            <div className="text-3xl mb-4">👋</div>
+                            <p className="text-lg font-semibold">Select a chat to start messaging</p>
+                            <p className="text-sm text-gray-400 text-center mt-2">
+                                Click on a contact from the list to begin a conversation
+                            </p>
+                        </div>
+                    )
+                )}
                     {/* Header */}
                 </div>
             </div>

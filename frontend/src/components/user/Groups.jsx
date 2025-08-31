@@ -18,6 +18,7 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
     const { setCurrentComponent } = useChatContext();
     const { user, socket } = useUser();
     const [searchTerm, setSearchTerm] = useState('');
+    const [isCreatingGroup, setIsCreatingGroup] = useState(false);
 
     const fetchUsers = async () => {
         try {
@@ -72,11 +73,12 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
             [member._id]: {
                 selected: !prev[member._id]?.selected,
                 memberData: member
-            }
-        }));
-    }
-
+            }        }));
+    };
+    
     const handleCreateGroup = async (name) => {
+        // if (isCreatingGroup) return; // Prevent double-clicks
+        
         if (!name.trim()) {
             showAlert('Please enter a group name', 'error');
             return;
@@ -89,15 +91,35 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
             showAlert('Please select at least one member', 'error');
             return;
         }
+
+        setIsCreatingGroup(true);
         
-        socket.emit("create:conversation-group", {
-            members: selectedMemberIds,
-            conversationName: name,
-            creator: user._id,
-            type: "group"
-        });
-        // showAlert('Creating group successfully! Please check in list conversation', 'success');
-        setShowForm(false);
+        // // Set a timeout to reset loading state if no response in 10 seconds
+        // const timeoutId = setTimeout(() => {
+        //     setIsCreatingGroup(false);
+        //     showAlert('Group creation timed out. Please try again.', 'error');
+        // }, 10000);
+        
+        // try {
+            socket.emit("create:conversation-group", {
+                members: selectedMemberIds,
+                conversationName: name,
+                creator: user._id,
+                type: "group"
+            });
+            showAlert('Creating group...', 'info');
+            setIsCreatingGroup(false);
+            setShowForm(false);
+            
+        //     // Store timeout ID so we can clear it in the success/error handlers
+        //     window.groupCreationTimeout = timeoutId;
+            
+        // } catch (error) {
+        //     clearTimeout(timeoutId);
+        //     console.error('Error creating group:', error);
+        //     showAlert('Failed to create group. Please try again.', 'error');
+        //     setIsCreatingGroup(false);
+        // }
     }
 
     useEffect(() => {
@@ -120,17 +142,23 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
                     name: data.conversationInfo.name,
                     members: data.newConversation.members,
                     avatarGroup: data.conversationInfo.avatarGroup || 'https://res.cloudinary.com/doruhcyf6/image/upload/v1733975023/Pngtree_group_avatar_icon_design_vector_3667776_xq0dzv.png',
-                },
-                unreadCount: data.newConversation.creator === user._id ? 0 : 1,
-            }
+                },                unreadCount: data.newConversation.creator === user._id ? 0 : 1,
+            };
             setGroups((prev) => {
                 // Prevent duplicate
                 if (prev.some(g => g._id === newGroup._id)) return prev;
                 return [...prev, newGroup]
-            });
-            setShowForm(false);
+            });            setShowForm(false);
             setGroupName('');
             setSelectedMembers({});
+            setIsCreatingGroup(false); // Reset loading state
+            
+            // Clear timeout if it exists
+            if (window.groupCreationTimeout) {
+                clearTimeout(window.groupCreationTimeout);
+                window.groupCreationTimeout = null;
+            }
+            
             showAlert('Group created successfully', 'success');
 
             // If current user is the creator, set pending group chat and switch
@@ -139,11 +167,26 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
                     setPendingGroupChat(data.newConversation);
                 }
                 setCurrentComponent('ConversationList');
+            }        });        socket.on('group:create-error', (error) => {
+            console.error('Group creation failed:', error);
+            setIsCreatingGroup(false);
+            
+            // Clear timeout if it exists
+            if (window.groupCreationTimeout) {
+                clearTimeout(window.groupCreationTimeout);
+                window.groupCreationTimeout = null;
             }
-        });
-
-        return () => {
+            
+            showAlert(error.message || 'Failed to create group. Please try again.', 'error');
+        });        return () => {
             socket.off('group:created');
+            socket.off('group:create-error');
+            
+            // Clear timeout on cleanup
+            if (window.groupCreationTimeout) {
+                clearTimeout(window.groupCreationTimeout);
+                window.groupCreationTimeout = null;
+            }
         }
     }, [socket, user._id, setCurrentComponent, setPendingGroupChat, showAlert]);
 
@@ -261,12 +304,19 @@ const Groups = ({ setCurrentChat, setPendingGroupChat }) => {
                                 className="px-5 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-xl transition-colors duration-300 font-medium"
                             >
                                 Cancel
-                            </button>
-                            <button
-                                className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl transition-all duration-300 font-medium shadow-md"
+                            </button>                            <button
+                                className={`px-5 py-2 rounded-xl transition-all duration-300 font-medium shadow-md flex items-center space-x-2 ${
+                                    isCreatingGroup 
+                                        ? 'bg-gray-400 cursor-not-allowed' 
+                                        : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'
+                                } text-white`}
                                 onClick={() => handleCreateGroup(groupName)}
+                                disabled={isCreatingGroup}
                             >
-                                Create Group
+                                {isCreatingGroup && (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                                )}
+                                <span>{isCreatingGroup ? 'Creating...' : 'Create Group'}</span>
                             </button>
                         </div>
                     </div>

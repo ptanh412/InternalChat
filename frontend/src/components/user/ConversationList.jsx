@@ -36,7 +36,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
             setCurrentChat(pendingGroupChat);
         }
     }, [pendingGroupChat, setCurrentChat, user._id]);
-    console.log("User in ConversationList:", user);
+    // console.log("User in ConversationList:", user);
     useEffect(() => {
 
         if (!socket) return;
@@ -79,7 +79,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
 
         // Listen for user status changes
         const handleUserStatus = (data) => {
-            console.log('Received status update in ConversationList:', data);
+            // console.log('Received status update in ConversationList:', data);
             updateConversationsWithStatus();
         };
 
@@ -417,9 +417,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
                     return conv;
                 });
             })
-        }
-
-        // Thêm handler cho backup event
+        }        // Thêm handler cho backup event
         const handleChatUpdate = (data) => {
             console.log('Received chat:update event:', data);
             if (data.type === 'new_message') {
@@ -435,6 +433,47 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
             if (data.type === 'update_group_info') {
                 handleUpdateInfoGroup(data.data);
             }
+            if (data.type === 'last_message_update') {
+                handleLastMessageUpdate(data.data);
+            }
+        };
+
+        const handleLastMessageUpdate = async (data) => {
+            console.log('Received last_message_update:', data);
+            
+            // Decrypt the last message content if it exists
+            let lastMessage = data.lastMessage;
+            if (lastMessage && lastMessage.content) {
+                try {
+                    lastMessage = {
+                        ...lastMessage,
+                        content: await clientEncryptionService.decryptMessage(lastMessage.content, data.conversationId)
+                    };
+                } catch (error) {
+                    console.error('Error decrypting message in handleLastMessageUpdate:', error);
+                }
+            }
+
+            setConversations(prev => {
+                return prev.map(conv => {
+                    if (conv.conversationInfo._id.toString() === data.conversationId.toString()) {
+                        const currentUnreadCount = conv.unreadCount || 0;
+                        const newUnreadCount = data.isIncrement 
+                            ? currentUnreadCount + (data.unreadCount || 1)
+                            : (data.unreadCount || currentUnreadCount);
+
+                        return {
+                            ...conv,
+                            conversationInfo: {
+                                ...conv.conversationInfo,
+                                lastMessage: lastMessage
+                            },
+                            unreadCount: newUnreadCount
+                        };
+                    }
+                    return conv;
+                });
+            });
         };
 
         // Đăng ký các listeners với hàm xử lý riêng biệt
@@ -505,7 +544,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
 
         socket.on('conversation:read', (data) => {
             const { conversationId, readBy } = data;
-            console.log('Received conversation:read data:', data);
+            // console.log('Received conversation:read data:', data);
             setConversations(prev =>
                 prev.map(conv =>
                     conv.conversationInfo._id?.toString() === conversationId.toString()
@@ -635,7 +674,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
             }
         })        // Cleanup function
         return () => {
-            console.log('Cleaning up socket listeners in ConversationList');
+            // console.log('Cleaning up socket listeners in ConversationList');
             socket.off('message:recall-success');
             socket.off('chat:loaded');
             socket.off('chat:new', handleChatNew);
@@ -818,7 +857,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
                 );
 
                 setConversations(decryptedConversations);
-                console.log('Conversations with decrypted lastMessages:', decryptedConversations);
+                // console.log('Conversations with decrypted lastMessages:', decryptedConversations);
             }
         } catch (error) {
             console.log(error);
@@ -881,7 +920,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
         // return `${hours % 12}:${minutes < 10 ? '0' : ''}${minutes} ${ampm}`;
     };
     const handleConversationClick = (conversation) => {
-        console.log('Clicked conversation:', conversation);
+        // console.log('Clicked conversation:', conversation);
         setSelectedConversationId(conversation._id);
 
         // Leave previous conversation if exists
@@ -913,7 +952,7 @@ const ConversationList = ({ setCurrentChat, pendingGroupChat, highlightConversat
         )
 
         setCurrentChat(conversation);
-        console.log('Setting current chat:', conversation);
+        // console.log('Setting current chat:', conversation);
 
         // Emit chat:init - the existing chat:loaded listeners will handle the response
         socket.emit('chat:init', {

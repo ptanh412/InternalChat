@@ -147,10 +147,23 @@ const Alert = ({ alert, onClose }) => {
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                    ),
-                    headerClass: 'text-blue-800',
+                    ),                    headerClass: 'text-blue-800',
                     textClass: 'text-blue-700',
                     headerText: 'Info',
+                };
+            default:
+                return {
+                    containerClass: 'bg-gray-50 shadow-gray-300 border-t-4',
+                    iconColor: 'text-gray-500',
+                    progressBarColor: 'bg-gray-500',
+                    icon: (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    ),
+                    headerClass: 'text-gray-800',
+                    textClass: 'text-gray-700',
+                    headerText: 'Alert',
                 };
         }
     };

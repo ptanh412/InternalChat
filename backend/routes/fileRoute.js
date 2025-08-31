@@ -98,7 +98,7 @@ router.get('/media/:fileId', async (req, res) => {
             const buffer = await response.arrayBuffer();
             res.send(Buffer.from(buffer));
         }    } catch (err) {
-        console.error("Error fetching media:", err);
+        // console.error("Error fetching media:", err);
         return res.status(500).json({ message: 'Internal server error' });
     }
 });

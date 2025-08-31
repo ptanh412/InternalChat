@@ -15,6 +15,7 @@ import { IoMdNotifications } from "react-icons/io";
 import NotificationPanel from "./NotificationPanel";
 import { useNotification } from "../../context/NotificationContext";
 import { IoIosSwitch } from "react-icons/io";
+import { useChatContext } from "../../context/ChatContext";
 
 const Sidebar = ({ setCurrentComponent }) => {
     const [showMenu, setShowMenu] = useState(false);
@@ -23,6 +24,7 @@ const Sidebar = ({ setCurrentComponent }) => {
     const [showNotification, setShowNotification] = useState(false);
     const notificationRef = useRef(null);
     const menuRef = useRef(null);
+    const { currentComponent } = useChatContext();
     const handleShowMenu = () => {
         setShowMenu(!showMenu);
     }
@@ -147,7 +149,7 @@ const Sidebar = ({ setCurrentComponent }) => {
 
                         )}
                     </div>
-                    {user?.position === 'Department Head' && user?.role?.permissions?.manageDepartment && (
+                    {user?.position === 'Department Head' && (
                         <div className="relative flex items-center justify-center my-6">
                             <button
                                 onClick={handleNavigateToManageDepartment}
@@ -158,20 +160,24 @@ const Sidebar = ({ setCurrentComponent }) => {
                             </button>
                         </div>
                     )}
-                </div>
-                <ul className={`space-y-14 text-base cursor-pointer px-0 py-4`}>
-                    {navItems.map((item) => (
-                        <>
+                </div>               
+                 <ul className={`space-y-14 text-base cursor-pointer px-0 py-4`}>
+                    {navItems.map((item) => {
+                        const isActive = currentComponent === item.component;
+                        return (
                             <button
                                 key={item.name}
                                 onClick={() => handleNavItemClick(item)}
                                 className={`flex items-center justify-center px-1 py-2 space-x-2 rounded-lg transition-colors duration-300 
-                            hover:bg-purple-100 hover:text-purple-500 dark:hover:bg-purple-900/50 dark:text-gray-200 dark:hover:text-purple-300`}
+                                ${isActive 
+                                    ? 'bg-purple-500 text-white shadow-lg scale-110 dark:bg-purple-600' 
+                                    : 'hover:bg-purple-100 hover:text-purple-500 dark:hover:bg-purple-900/50 dark:text-gray-200 dark:hover:text-purple-300'
+                                }`}
                             >
                                 <div className={'text-2xl'}>{item.icon}</div>
                             </button>
-                        </>
-                    ))}
+                        );
+                    })}
                 </ul>
             </div>
             <div className="flex items-center justify-center mb-7 relative">

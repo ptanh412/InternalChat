@@ -626,22 +626,10 @@ const setUpSocket = (server) => {
 				userId: userIdString,
 				active: isActive,
 				message: message
-			});
-		} catch (error) {
+			});		} catch (error) {
 			console.error('Error toggling user active status', error);
 		}
 	}
-
-	const helpers = {
-		createUpdateNotification,
-		notifyDepartmentMembers,
-		notifyUser,
-		notifyUserUpdate,
-		emitRoleUpdate,
-		toggleActive
-	}
-
-	socketService.setSocketInstance(null, io, helpers);
 
 	const logCallSystemMessage = async (call) => {
 		try {
@@ -665,8 +653,8 @@ const setUpSocket = (server) => {
 					break;
 				default:
 					content = `Call finished with status: ${call.status}`;
-			}
-
+			}			
+			
 			const systemMessage = new Messages({
 				conversationId: call.conversationId,
 				sender: call.initiator,
@@ -677,7 +665,8 @@ const setUpSocket = (server) => {
 					status: call.status,
 					type: call.type,
 					duration: call.duration,
-					participants: call.participants.map(p => ({ user: p.user.toString(), status: p.status }))
+					participants: call.participants.map(p => ({ user: p.user.toString(), status: p.status })),
+					action: call.status === 'completed' ? 'call_ended' : 'call_missed'
 				}
 			});
 			await systemMessage.save();
@@ -687,11 +676,81 @@ const setUpSocket = (server) => {
 				updatedAt: new Date()
 			});
 
-			io.to(call.conversationId.toString()).emit('message:new', systemMessage);
+			// Populate the system message with sender info before emitting
+			const populatedSystemMessage = await Messages.findById(systemMessage._id)
+				.populate('sender', 'name avatar status')
+				.lean()
+				.exec();
+
+			// Emit to conversation room for active users
+			io.to(call.conversationId.toString()).emit('message:new', populatedSystemMessage);
+
+			// For ended or missed calls, emit lastMessage update to all participants immediately
+			if (call.status === 'completed' || call.status === 'missed') {
+				const conversationMembers = await ConversationMember.find({
+					conversationId: call.conversationId
+				}).lean().exec();
+
+				const convIdString = call.conversationId.toString();
+
+				for (const member of conversationMembers) {
+					const memberIdString = member.memberId.toString();
+					const memberSocketId = userSocketMap.get(memberIdString);
+
+					if (memberSocketId) {
+						// Check if user is actively in this conversation
+						const isInRoom = isUserActiveInConversation(memberIdString, convIdString);
+
+						if (!isInRoom) {
+							// If user is not in the conversation room, increment unread count
+							await ConversationMember.findOneAndUpdate(
+								{
+									conversationId: call.conversationId,
+									memberId: member.memberId
+								},
+								{ $inc: { unreadCount: 1 } }
+							);
+
+							// Emit chat update with lastMessage and unread count
+							io.to(memberSocketId).emit('chat:update', {
+								type: 'last_message_update',
+								data: {
+									conversationId: call.conversationId,
+									lastMessage: populatedSystemMessage,
+									unreadCount: 1,
+									isIncrement: true
+								}
+							});
+						} else {
+							// If user is in the conversation room, just update lastMessage without unread count
+							io.to(memberSocketId).emit('chat:update', {
+								type: 'last_message_update',
+								data: {
+									conversationId: call.conversationId,
+									lastMessage: populatedSystemMessage,
+									unreadCount: 0
+								}
+							});
+						}
+					}
+				}
+			}
 		} catch (error) {
 			console.error('Error logging call system message:', error);
 		}
 	}
+
+	const helpers = {
+		createUpdateNotification,
+		notifyDepartmentMembers,		
+		notifyUser,
+		notifyUserUpdate,
+		emitRoleUpdate,
+		toggleActive,
+		logCallSystemMessage
+	}
+
+	socketService.setSocketInstance(null, io, helpers);
 
 	io.use(socketAuth);
 	io.on('connection', async (socket) => {
@@ -2951,7 +3010,6 @@ const setUpSocket = (server) => {
 				console.error('Error reading message', error);
 			}
 		})
-
 		socket.on('call:initiate', async (data) => {
 			console.log('Call event received:', data);
 			const { conversationId, type, recipientId } = data;
@@ -2965,12 +3023,20 @@ const setUpSocket = (server) => {
 			const recipientSocketId = userSocketMap.get(recipientId.toString());
 			if (!recipientSocketId) {
 				console.warn('Recipient not connected:', recipientId);
-				socket.emit('call:error', { error: 'Recipient not connected' });
+				socket.emit('call:error', { error: 'User is not online' });
+				return;
+			}
+
+			// Check if recipient socket is still connected
+			const recipientSocket = io.sockets.sockets.get(recipientSocketId);
+			if (!recipientSocket || !recipientSocket.connected) {
+				console.warn('Recipient socket disconnected:', recipientId);
+				socket.emit('call:error', { error: 'User is not online' });
 				return;
 			}
 
 			try {
-				const initiatorUser = await Users.findById(socket.user).select('name avatar').leant();
+				const initiatorUser = await Users.findById(socket.userId).select('name avatar').lean();
 
 				if (!initiatorUser) {
 					console.warn('Initiator user not found:', socket.userId);
@@ -2989,25 +3055,42 @@ const setUpSocket = (server) => {
 					status: 'started',
 					startTime: new Date()
 				});
-				await newCall.save();
-
+				await newCall.save();				
 				console.log(`New call ${newCall._id} initiated by ${socket.userId} to ${recipientId}`);
 
-				const conversation = await Conversations.findById(conversationId).populate('members.memberId').lean();
+				const conversation = await Conversations.findById(conversationId).lean();
 				let conversationName = 'Private Chat';
 
-				if (conversation && conversation.type === 'private' && conversation.members?.length == 2) {
-					const otherMember = conversation.members.find(member => member.memberId._id.toString() !== socket.userId.toString());
-					if (otherMember) {
-						conversationName = otherMember.memberId.name;
+				if (conversation && conversation.type === 'private') {
+					// For private conversations, get the other member's name
+					const members = await ConversationMember.find({ conversationId })
+						.populate('memberId', 'name')
+						.lean();
+					
+					if (members?.length == 2) {
+						const otherMember = members.find(member => member.memberId._id.toString() !== socket.userId.toString());
+						if (otherMember) {
+							conversationName = otherMember.memberId.name;
+						}
 					}
 				} else if (conversation && conversation.type === 'group') {
 					conversationName = conversation.name || 'Group Chat';
 				} else if (conversation && conversation.type === 'department') {
 					conversationName = conversation.name || 'Department Chat';
-				}
-
-				consoleg.log(`Emitting call:incoming to recipient ${recipientId}`);
+				}				
+				console.log(`Emitting call:incoming to recipient ${recipientId} with socketId: ${recipientSocketId}`);
+				console.log('Call data being sent:', {
+					callId: newCall._id,
+					initiator: {
+						_id: initiatorUser._id,
+						name: initiatorUser.name,
+						avatar: initiatorUser.avatar
+					},
+					conversationId,
+					type: newCall.type,
+					conversationName: conversationName,
+				});
+				
 				io.to(recipientSocketId).emit('call:incoming', {
 					callId: newCall._id,
 					initiator: {
@@ -3017,9 +3100,32 @@ const setUpSocket = (server) => {
 					},
 					conversationId,
 					type: newCall.type,
-					conversationName: initiatorUser.name,
-				})
-				setTimeout(async () => checkMissedCall(newCall._id), 30000);
+					conversationName: conversationName,
+				});				
+				setTimeout(async () => checkMissedCall(newCall._id), 30000);				
+				console.log(`🎯 About to emit call:initiated to socket ${socket.id} for call ${newCall._id}`);
+				console.log(`🎯 Socket connected status:`, socket.connected);
+				console.log(`🎯 Socket userId:`, socket.userId);
+				console.log(`🎯 Emitting call:initiated with data:`, {
+					callId: newCall._id,
+					status: 'ringing'
+				});
+				
+				// Double check socket is connected before emitting
+				if (!socket.connected) {
+					console.error(`🎯 ERROR: Socket ${socket.id} is not connected!`);
+					return;
+				}
+				
+				// Add a small delay to ensure event listeners are ready
+				setTimeout(() => {
+					console.log(`🎯 Emitting call:initiated after delay...`);
+					socket.emit('call:initiated', {
+						callId: newCall._id,
+						status: 'ringing'
+					});
+					console.log(`🎯 call:initiated event emitted successfully to ${socket.userId}`);
+				}, 100);
 			} catch (error) {
 				console.error('Error initiating call', error);
 				socket.emit('call:error', { error: error.message });
@@ -3040,36 +3146,55 @@ const setUpSocket = (server) => {
 					return;
 				}
 
+				if (call.status !== 'started') {
+					console.warn('Call is not in a valid state to answer:', call.status);
+					socket.emit('call:error', { error: 'Call is not in a valid state to answer' });
+					return;
+				}
+
 				const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
-				if (participant && participants.status === 'ringing') {
+				if (participant && participant.status === 'ringing') {
 					participant.status = 'answered';
 					participant.joinedAt = new Date();
 
 					await call.save();
-					console.log(`User ${socket.userId} answered call ${callId}`);
-
+					console.log(`User ${socket.userId} answered call ${callId}`);				
 					const initiatorSocketId = userSocketMap.get(call.initiator.toString());
-					if (initiatorSocketId && initiatorSocketId !== socket.id) {
-						console.log(`Notifying initiator ${call.initiator} about call answer`);
-						io.to(initiatorSocketId).emit('call:answered', {
-							callId,
-							answeredId: socket.userId,
-						})
-					} else {
-						console.warn('Initiator not connected:', call.initiator);
-						socket.emit('call:error', { error: 'Initiator not connected' });
-						return;
-					}
+				if (initiatorSocketId && initiatorSocketId !== socket.id) {
+					console.log(`Notifying initiator ${call.initiator} about call answer`);
+					
+					// Get recipient user info to send to initiator
+					const recipientUser = await Users.findById(socket.userId).select('name avatar').lean();
+					
+					io.to(initiatorSocketId).emit('call:answered', {
+						callId,
+						answeredId: socket.userId,
+						status: 'answered',
+						recipient: {
+							_id: recipientUser._id,
+							name: recipientUser.name,
+							avatar: recipientUser.avatar
+						}
+					})
+				} else {
+					console.warn('Initiator not connected:', call.initiator);
+					socket.emit('call:error', { error: 'Initiator not connected' });
+					return;
 				}
+				}
+
+				socket.emit('call:answer-confirmed', {
+					callId,
+					status: 'answered',
+				})
 			} catch (error) {
 				console.error('Error answering call', error);
 				socket.emit('call:error', { error: error.message });
 			}
-		});
-
+		});		
 		socket.on('call:decline', async (data) => {
 			console.log(`Call decline event received:`, data);
-			const { callId } = data;
+			const { callId, reason } = data;
 
 			if (!socket.userId) return;
 
@@ -3082,21 +3207,42 @@ const setUpSocket = (server) => {
 				const participant = call.participants.find(p => p.user.toString() === socket.userId.toString());
 				if (participant && participant.status === 'ringing') {
 					participant.status = 'declined';
-					call.status = 'declined';
+					call.status = reason === 'no_offer_received' ? 'failed' : 'declined';
 					call.endTime = new Date();
+					
+					// Log specific reason for debugging
+					if (reason) {
+						console.log(`Call declined with reason: ${reason}`);
+					}
+					
 					await call.save();
 					console.log(`User ${socket.userId} declined call ${callId}`);
 
 					await logCallSystemMessage(call);
 
+					// Notify initiator about call decline
 					const initiatorSocketId = userSocketMap.get(call.initiator.toString());
 					if (initiatorSocketId && initiatorSocketId !== socket.id) {
 						console.log(`Notifying initiator ${call.initiator} about call decline`);
 						io.to(initiatorSocketId).emit('call:declined', {
 							callId,
 							declinedId: socket.userId,
-						})
+							reason: reason || 'user_declined'
+						});
 					}
+
+					// Also send call:ended event to both participants to close IncallUI
+					call.participants.forEach((participant) => {
+						const participantSocketId = userSocketMap.get(participant.user.toString());
+						if (participantSocketId) {
+							console.log(`Sending call:ended to participant ${participant.user} to close IncallUI`);
+							io.to(participantSocketId).emit('call:ended', {
+								callId,
+								status: call.status,
+								declinedBy: socket.userId,
+							});
+						}
+					});
 				}
 			} catch (error) {
 				console.error('Error declining call', error);
@@ -3171,19 +3317,34 @@ const setUpSocket = (server) => {
 				})
 			}
 		}
-
 		socket.on('signal', (data) => {
 			console.log(`Signal received from ${socket.userId}:`, data);
+			console.log('Signal data structure:', JSON.stringify(data, null, 2));
 
 			const { callId, signalData, recipientId } = data;
+			
+			// Validate signal structure
+			if (!callId || !signalData || !recipientId) {
+				console.error('Invalid signal data structure:', { callId, signalData, recipientId });
+				return;
+			}
+			
+			if (signalData.type === 'offer') {
+				console.log('📤 Forwarding WebRTC offer signal');
+				console.log('📤 Offer SDP preview:', signalData.offer?.sdp ? 
+					signalData.offer.sdp.substring(0, 100) + '...' : 'NO SDP');
+			}
+			
 			const recipientSocketId = userSocketMap.get(recipientId.toString());
 			if (recipientSocketId) {
-				console.log(`Forwarding signal to recipient ${recipientId}`);
-				io.to(recipientSocketId).emit('signal', {
+				console.log(`Forwarding signal to recipient ${recipientId} (socket: ${recipientSocketId})`);
+				const forwardedData = {
 					callId,
 					signalData,
 					senderId: socket.userId
-				});
+				};
+				console.log('📤 Forwarded signal structure:', JSON.stringify(forwardedData, null, 2));
+				io.to(recipientSocketId).emit('signal', forwardedData);
 			} else {
 				console.warn(`Recipient ${recipientId} not connected`);
 			}

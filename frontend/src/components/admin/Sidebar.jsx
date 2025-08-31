@@ -13,7 +13,7 @@ const Sidebar = ({ currentPath, collapsed }) => {
         { path: '/employees', name: 'Employees', icon: <FaBuildingUser /> },
         { path: '/roles', name: 'Roles', icon: <MdManageHistory /> },
         { path: '/departments', name: 'Departments', icon: <FaLayerGroup /> },
-        { path: '/permissions', name: 'Permissions', icon: <MdVpnKey /> },
+        { path: '/permissions', name: 'Phân quyền', icon: <MdVpnKey /> },
         { path: '/conversation', name: 'Conversations', icon: <CiChat2 /> }
     ];
 
